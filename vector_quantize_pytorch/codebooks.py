@@ -7,7 +7,6 @@ from torch.cuda.amp import autocast
 
 from vector_quantize_pytorch.utils import (
     default,
-    exists,
     gumbel_sample,
     identity,
     l2norm,
@@ -293,7 +292,7 @@ class EuclideanCodebook(nn.Module):
         if self.initted:
             return
 
-        if exists(mask):
+        if mask:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -321,7 +320,7 @@ class EuclideanCodebook(nn.Module):
         if needs_init:
             self.register_buffer(buffer_name + "_needs_init", torch.Tensor([False]))
 
-        if not exists(old_value) or needs_init:
+        if old_value is not None or needs_init:
             self.register_buffer(buffer_name, new_value.detach())
 
             return
@@ -355,7 +354,7 @@ class EuclideanCodebook(nn.Module):
 
         data = rearrange(data, "h ... d -> h (...) d")
 
-        if exists(mask):
+        if mask:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -441,7 +440,7 @@ class EuclideanCodebook(nn.Module):
         dtype = x.dtype
         flatten, ps = pack_one(x, "h * d")
 
-        if exists(mask):
+        if mask:
             mask = repeat(
                 mask,
                 "b n -> c (b h n)",
@@ -483,7 +482,7 @@ class EuclideanCodebook(nn.Module):
                     codebook_std / batch_std
                 ) + self.codebook_mean
 
-            if exists(mask):
+            if mask:
                 embed_onehot[~mask] = 0.0
 
             cluster_size = embed_onehot.sum(dim=1)
@@ -582,7 +581,7 @@ class CosineSimCodebook(nn.Module):
         if self.initted:
             return
 
-        if exists(mask):
+        if mask:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -646,7 +645,7 @@ class CosineSimCodebook(nn.Module):
 
         flatten, ps = pack_one(x, "h * d")
 
-        if exists(mask):
+        if mask:
             mask = repeat(
                 mask,
                 "b n -> c (b h n)",
@@ -672,7 +671,7 @@ class CosineSimCodebook(nn.Module):
             quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update and not freeze_codebook:
-            if exists(mask):
+            if mask:
                 embed_onehot[~mask] = 0.0
 
             bins = embed_onehot.sum(dim=1)

@@ -11,7 +11,6 @@ from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebo
 from vector_quantize_pytorch.utils import (
     Sequential,
     default,
-    exists,
     gumbel_sample,
     identity,
     orthogonal_loss_fn,
@@ -119,7 +118,7 @@ class VectorQuantize(nn.Module):
             straight_through=straight_through,
         )
 
-        if not exists(sync_codebook):
+        if sync_codebook is None:
             sync_codebook = (
                 distributed.is_initialized() and distributed.get_world_size() > 1
             )
@@ -157,7 +156,7 @@ class VectorQuantize(nn.Module):
 
         self.in_place_codebook_optimizer = (
             in_place_codebook_optimizer(self._codebook.parameters())
-            if exists(in_place_codebook_optimizer)
+            if in_place_codebook_optimizer
             else None
         )
 
@@ -221,7 +220,7 @@ class VectorQuantize(nn.Module):
         only_one = x.ndim == 2
 
         if only_one:
-            assert not exists(mask)
+            assert mask is None
             x = rearrange(x, "b d -> b 1 d")
 
         shape, device, heads, is_multiheaded, codebook_size, return_loss = (
@@ -230,11 +229,11 @@ class VectorQuantize(nn.Module):
             self.heads,
             self.heads > 1,
             self.codebook_size,
-            exists(indices),
+            indices is not None,
         )
 
         need_transpose = not self.channel_last and not self.accept_image_fmap
-        should_inplace_optimize = exists(self.in_place_codebook_optimizer)
+        should_inplace_optimize = self.in_place_codebook_optimizer is not None
 
         # rearrange inputs
 
@@ -274,7 +273,7 @@ class VectorQuantize(nn.Module):
         # one step in-place update
 
         if should_inplace_optimize and self.training and not freeze_codebook:
-            if exists(mask):
+            if mask:
                 loss = F.mse_loss(quantize, x.detach(), reduction="none")
 
                 loss_mask = mask
@@ -366,7 +365,7 @@ class VectorQuantize(nn.Module):
         if self.training:
             if self.commitment_weight > 0:
                 if self.commitment_use_cross_entropy_loss:
-                    if exists(mask):
+                    if mask:
                         ce_loss_mask = mask
                         if is_multiheaded:
                             ce_loss_mask = repeat(ce_loss_mask, "b n -> b n h", h=heads)
@@ -374,7 +373,7 @@ class VectorQuantize(nn.Module):
                         embed_ind.masked_fill_(~ce_loss_mask, -1)
 
                     commit_loss = calculate_ce_loss(embed_ind)
-                elif exists(mask):
+                elif mask:
                     # with variable lengthed sequences
                     commit_loss = F.mse_loss(commit_quantize, x, reduction="none")
 
@@ -408,7 +407,7 @@ class VectorQuantize(nn.Module):
                 num_codes = codebook.shape[-2]
 
                 if (
-                    exists(self.orthogonal_reg_max_codes)
+                    self.orthogonal_reg_max_codes
                     and num_codes > self.orthogonal_reg_max_codes
                 ):
                     rand_ids = torch.randperm(num_codes, device=device)[
@@ -444,7 +443,7 @@ class VectorQuantize(nn.Module):
 
         # if masking, only return quantized for where mask has True
 
-        if exists(mask):
+        if mask:
             quantize = torch.where(
                 rearrange(mask, "... -> ... 1"), quantize, orig_input
             )

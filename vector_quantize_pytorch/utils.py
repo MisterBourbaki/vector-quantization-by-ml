@@ -12,12 +12,8 @@ def unpack_one(t, ps, pattern):
     return unpack(t, ps, pattern)[0]
 
 
-def exists(val):
-    return val is not None
-
-
 def default(val, d):
-    return val if exists(val) else d
+    return val if (val is not None) else d
 
 
 def identity(t):
