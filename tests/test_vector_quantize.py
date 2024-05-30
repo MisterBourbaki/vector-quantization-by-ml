@@ -77,3 +77,21 @@ class TestVectorQuantizerLowerCode:
 
         assert x.shape == quantized.shape
         assert indices.shape == (1, 1024)
+class TestVectorQuantizerNoInit:
+    vq = VectorQuantize(
+        dim=256,
+        codebook_size=512,
+        decay=0.8,  
+        commitment_weight=1.0,  
+        kmeans_init=True,
+    )
+
+    def test_init(self):
+        assert self.vq
+
+    def test_forward(self):
+        x = torch.randn(1, 1024, 256)
+        quantized, indices, _ = self.vq(x)
+
+        assert x.shape == quantized.shape
+        assert indices.shape == (1, 1024)

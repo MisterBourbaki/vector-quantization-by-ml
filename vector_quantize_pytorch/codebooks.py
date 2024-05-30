@@ -137,7 +137,9 @@ def batched_bincount(x, *, minlength):
     target.scatter_add_(-1, x, values)
     return target
 
-
+## TODO:
+# Use this https://www.kernel-operations.io/keops/_auto_tutorials/kmeans/plot_kmeans_torch.html#sphx-glr-auto-tutorials-kmeans-plot-kmeans-torch-py
+# to improve the kmeans implementation
 def kmeans(
     samples,
     num_clusters,
@@ -203,7 +205,7 @@ class EuclideanCodebook(nn.Module):
         reset_cluster_size=None,
         use_ddp=False,
         learnable_codebook=False,
-        gumbel_sample=gumbel_sample,
+        gumbel_sample: Callable=gumbel_sample,
         sample_codebook_temp=1.0,
         ema_update=True,
         affine_param=False,
@@ -228,7 +230,6 @@ class EuclideanCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
 
-        assert callable(gumbel_sample)
         self.gumbel_sample = gumbel_sample
         self.sample_codebook_temp = sample_codebook_temp
 
@@ -246,7 +247,7 @@ class EuclideanCodebook(nn.Module):
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        self.register_buffer("initted", torch.Tensor([not kmeans_init]))
+        self.is_kmeans_init = not kmeans_init
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
         self.register_buffer("embed_avg", embed.clone())
 
@@ -277,9 +278,6 @@ class EuclideanCodebook(nn.Module):
 
     @torch.jit.ignore
     def init_embed_(self, data, mask=None):
-        if self.initted:
-            return
-
         if mask:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
@@ -297,7 +295,7 @@ class EuclideanCodebook(nn.Module):
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        self.initted.data.copy_(torch.Tensor([True]))
+        self.is_kmeans_init = True
 
     @torch.jit.ignore
     def update_with_decay(self, buffer_name, new_value, decay):
@@ -435,8 +433,8 @@ class EuclideanCodebook(nn.Module):
                 c=flatten.shape[0],
                 h=flatten.shape[-2] // (mask.shape[0] * mask.shape[1]),
             )
-
-        self.init_embed_(flatten, mask=mask)
+        if not self.is_kmeans_init:
+            self.init_embed_(flatten, mask=mask)
 
         if self.affine_param:
             self.update_affine(flatten, self.embed, mask=mask)
@@ -493,9 +491,8 @@ class EuclideanCodebook(nn.Module):
             self.expire_codes_(x)
 
         if needs_codebook_dim:
-            quantize, embed_ind = map(
-                lambda t: rearrange(t, "1 ... -> ..."), (quantize, embed_ind)
-            )
+            quantize = rearrange(quantize, "1 ... -> ...")
+            embed_ind = rearrange(embed_ind, "1 ... -> ...")
 
         dist = unpack_one(dist, ps, "h * d")
 
@@ -517,7 +514,7 @@ class CosineSimCodebook(nn.Module):
         reset_cluster_size=None,
         use_ddp=False,
         learnable_codebook=False,
-        gumbel_sample=gumbel_sample,
+        gumbel_sample: Callable=gumbel_sample,
         sample_codebook_temp=1.0,
         ema_update=True,
     ):
@@ -542,7 +539,6 @@ class CosineSimCodebook(nn.Module):
         self.threshold_ema_dead_code = threshold_ema_dead_code
         self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
 
-        assert callable(gumbel_sample)
         self.gumbel_sample = gumbel_sample
         self.sample_codebook_temp = sample_codebook_temp
 
@@ -556,7 +552,7 @@ class CosineSimCodebook(nn.Module):
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        self.register_buffer("initted", torch.Tensor([not kmeans_init]))
+        self.is_kmeans_init = not kmeans_init
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
         self.register_buffer("embed_avg", embed.clone())
 
@@ -568,9 +564,6 @@ class CosineSimCodebook(nn.Module):
 
     @torch.jit.ignore
     def init_embed_(self, data, mask=None):
-        if self.initted:
-            return
-
         if mask:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
@@ -589,7 +582,7 @@ class CosineSimCodebook(nn.Module):
         self.embed.data.copy_(embed)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        self.initted.data.copy_(torch.Tensor([True]))
+        self.is_kmeans_init = True
 
     def replace(self, batch_samples, batch_mask):
         batch_samples = normalize(batch_samples, p=2, dim=-1)
@@ -632,193 +625,6 @@ class CosineSimCodebook(nn.Module):
             x = rearrange(x, "... -> 1 ...")
 
         dtype = x.dtype
-
-        flatten, ps = pack_one(x, "h * d")
-
-        if mask:
-            mask = repeat(
-                mask,
-                "b n -> c (b h n)",
-                c=flatten.shape[0],
-                h=flatten.shape[-2] // (mask.shape[0] * mask.shape[1]),
-            )
-
-        self.init_embed_(flatten, mask=mask)
-
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
-
-        dist = einsum("h n d, h c d -> h n c", flatten, embed)
-
-        embed_ind, embed_onehot = self.gumbel_sample(
-            dist, dim=-1, temperature=sample_codebook_temp, training=self.training
-        )
-        embed_ind = unpack_one(embed_ind, ps, "h *")
-
-        if self.training:
-            unpacked_onehot = unpack_one(embed_onehot, ps, "h * c")
-            quantize = einsum("h b n c, h c d -> h b n d", unpacked_onehot, embed)
-        else:
-            quantize = batched_embedding(embed_ind, embed)
-
-        if self.training and self.ema_update and not freeze_codebook:
-            if mask:
-                embed_onehot[~mask] = 0.0
-
-            bins = embed_onehot.sum(dim=1)
-            self.all_reduce_fn(bins)
-
-            ema_inplace(self.cluster_size.data, bins, self.decay)
-
-            embed_sum = einsum("h n d, h n c -> h c d", flatten, embed_onehot)
-            embed_sum = embed_sum.contiguous()
-            self.all_reduce_fn(embed_sum)
-
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
-
-            cluster_size = laplace_smoothing(
-                self.cluster_size, self.codebook_size, self.eps
-            ) * self.cluster_size.sum(dim=-1, keepdim=True)
-
-            embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
-            embed_normalized = normalize(embed_normalized, p=2, dim=-1)
-
-            self.embed.data.copy_(normalize(embed_normalized, p=2, dim=-1))
-            self.expire_codes_(x)
-
-        if needs_codebook_dim:
-            quantize, embed_ind = map(
-                lambda t: rearrange(t, "1 ... -> ..."), (quantize, embed_ind)
-            )
-
-        dist = unpack_one(dist, ps, "h * d")
-        return quantize, embed_ind, dist
-
-
-class BaseCodebook(nn.Module):
-    def __init__(
-        self,
-        dim: int,
-        codebook_size: int,
-        num_codebooks: int=1,
-        kmeans_init: bool=False,
-        kmeans_iters: int=10,
-        sync_kmeans: bool=True,
-        decay: float=0.8,
-        eps: float=1e-5,
-        threshold_ema_dead_code: float=2,
-        reset_cluster_size: Optional[bool]=False,
-        use_ddp: bool=False,
-        learnable_codebook: bool=False,
-        gumbel_sample: Callable=gumbel_sample,
-        sample_codebook_temp: float=1.0,
-        ema_update: bool=True,
-        transform_input: Callable = (lambda x: x),
-    ):
-        super().__init__()
-        self.transform_input = transform_input
-
-        self.ema_update = ema_update
-        self.decay = decay
-
-        if not kmeans_init:
-            embed = normalize(
-                uniform_init(num_codebooks, codebook_size, dim), p=2, dim=-1
-            )
-        else:
-            embed = torch.zeros(num_codebooks, codebook_size, dim)
-
-        self.codebook_size = codebook_size
-        self.num_codebooks = num_codebooks
-
-        self.kmeans_iters = kmeans_iters
-        self.eps = eps
-        self.threshold_ema_dead_code = threshold_ema_dead_code
-        self.reset_cluster_size = reset_cluster_size if reset_cluster_size else threshold_ema_dead_code
-
-        self.gumbel_sample = gumbel_sample
-        self.sample_codebook_temp = sample_codebook_temp
-
-        self.sample_fn = (
-            sample_vectors_distributed
-            if use_ddp and sync_kmeans
-            else batched_sample_vectors
-        )
-        self.kmeans_all_reduce_fn = (
-            distributed.all_reduce if use_ddp and sync_kmeans else noop
-        )
-        self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
-
-        self.register_buffer("is_kmeans_init", torch.Tensor([not kmeans_init]))
-        self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
-        self.register_buffer("embed_avg", embed.clone())
-
-        self.learnable_codebook = learnable_codebook
-        if learnable_codebook:
-            self.embed = nn.Parameter(embed)
-        else:
-            self.register_buffer("embed", embed)
-
-    @torch.jit.ignore
-    def init_embed_(self, data, mask=None):
-        if mask:
-            c = data.shape[0]
-            data = rearrange(data[mask], "(c n) d -> c n d", c=c)
-
-        embed, cluster_size = kmeans(
-            data,
-            self.codebook_size,
-            self.kmeans_iters,
-            use_cosine_sim=True,
-            sample_fn=self.sample_fn,
-            all_reduce_fn=self.kmeans_all_reduce_fn,
-        )
-
-        embed_sum = embed * rearrange(cluster_size, "... -> ... 1")
-
-        self.embed.data.copy_(embed)
-        self.embed_avg.data.copy_(embed_sum)
-        self.cluster_size.data.copy_(cluster_size)
-        self.is_kmeans_init.data.copy_(torch.Tensor([True]))
-
-    def replace(self, batch_samples, batch_mask):
-        batch_samples = normalize(batch_samples, p=2, dim=-1)
-
-        for ind, (samples, mask) in enumerate(
-            zip(batch_samples.unbind(dim=0), batch_mask.unbind(dim=0))
-        ):
-            if not torch.any(mask):
-                continue
-
-            sampled = self.sample_fn(
-                rearrange(samples, "... -> 1 ..."), mask.sum().item()
-            )
-            sampled = rearrange(sampled, "1 ... -> ...")
-
-            self.embed.data[ind][mask] = sampled
-            self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
-            self.cluster_size.data[ind][mask] = self.reset_cluster_size
-
-    def expire_codes_(self, batch_samples):
-        if self.threshold_ema_dead_code == 0:
-            return
-
-        expired_codes = self.cluster_size < self.threshold_ema_dead_code
-
-        if not torch.any(expired_codes):
-            return
-
-        batch_samples = rearrange(batch_samples, "h ... d -> h (...) d")
-        self.replace(batch_samples, batch_mask=expired_codes)
-
-    @autocast(enabled=False)
-    def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
-        needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
-
-        x = x.float()
-
-        if needs_codebook_dim:
-            x = rearrange(x, "... -> 1 ...")
 
         flatten, ps = pack_one(x, "h * d")
 
