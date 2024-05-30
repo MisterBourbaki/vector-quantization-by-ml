@@ -4,11 +4,11 @@ import torch
 from einops import rearrange, reduce, repeat
 from torch import distributed, einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn.functional import normalize
 
 from vector_quantize_pytorch.utils import (
     default,
     gumbel_sample,
-    l2norm,
     pack_one,
     unpack_one,
 )
@@ -174,7 +174,7 @@ def kmeans(
         all_reduce_fn(new_means)
 
         if use_cosine_sim:
-            new_means = l2norm(new_means)
+            new_means = normalize(new_means, p=2, dim=-1)
 
         means = torch.where(rearrange(zero_mask, "... -> ... 1"), means, new_means)
 
@@ -194,7 +194,7 @@ def batched_embedding(indices, embeds):
 def orthogonal_loss_fn(t):
     # eq (2) from https://arxiv.org/abs/2112.00384
     h, n = t.shape[:2]
-    normed_codes = l2norm(t)
+    normed_codes = normalize(t, p=2, dim=-1)
     cosine_sim = einsum("h i d, h j d -> h i j", normed_codes, normed_codes)
     return (cosine_sim**2).sum() / (h * n**2) - (1 / n)
 
@@ -223,7 +223,7 @@ class EuclideanCodebook(nn.Module):
         affine_param_codebook_decay=0.9,
     ):
         super().__init__()
-        self.transform_input = (lambda x: x)
+        self.transform_input = lambda x: x
 
         self.decay = decay
         self.ema_update = ema_update
@@ -533,13 +533,15 @@ class CosineSimCodebook(nn.Module):
         ema_update=True,
     ):
         super().__init__()
-        self.transform_input = l2norm
+        self.transform_input = lambda x: normalize(x, p=2, dim=-1)
 
         self.ema_update = ema_update
         self.decay = decay
 
         if not kmeans_init:
-            embed = l2norm(uniform_init(num_codebooks, codebook_size, dim))
+            embed = normalize(
+                uniform_init(num_codebooks, codebook_size, dim), p=2, dim=-1
+            )
         else:
             embed = torch.zeros(num_codebooks, codebook_size, dim)
 
@@ -601,7 +603,7 @@ class CosineSimCodebook(nn.Module):
         self.initted.data.copy_(torch.Tensor([True]))
 
     def replace(self, batch_samples, batch_mask):
-        batch_samples = l2norm(batch_samples)
+        batch_samples = normalize(batch_samples, p=2, dim=-1)
 
         for ind, (samples, mask) in enumerate(
             zip(batch_samples.unbind(dim=0), batch_mask.unbind(dim=0))
@@ -689,9 +691,9 @@ class CosineSimCodebook(nn.Module):
             ) * self.cluster_size.sum(dim=-1, keepdim=True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
-            embed_normalized = l2norm(embed_normalized)
+            embed_normalized = normalize(embed_normalized, p=2, dim=-1)
 
-            self.embed.data.copy_(l2norm(embed_normalized))
+            self.embed.data.copy_(normalize(embed_normalized, p=2, dim=-1))
             self.expire_codes_(x)
 
         if needs_codebook_dim:

@@ -299,7 +299,7 @@ class VectorQuantize(nn.Module):
             # determine code to use for commitment loss
             if not self.learnable_codebook or freeze_codebook:
                 commit_quantize = quantize.detach()
-            else: 
+            else:
                 commit_quantize = quantize
 
             # straight through

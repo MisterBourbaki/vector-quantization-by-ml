@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 from einops import pack, unpack
 from torch import einsum
+from torch.nn.functional import normalize
 
 
 def pack_one(t, pattern):
@@ -14,9 +15,6 @@ def unpack_one(t, ps, pattern):
 
 def default(val, d):
     return val if (val is not None) else d
-
-def l2norm(t):
-    return F.normalize(t, p=2, dim=-1)
 
 
 def log(t, eps=1e-20):
@@ -73,6 +71,6 @@ def gumbel_sample(
 def orthogonal_loss_fn(t):
     # eq (2) from https://arxiv.org/abs/2112.00384
     h, n = t.shape[:2]
-    normed_codes = l2norm(t)
+    normed_codes = normalize(t, p=2, dim=-1)
     cosine_sim = einsum("h i d, h j d -> h i j", normed_codes, normed_codes)
     return (cosine_sim**2).sum() / (h * n**2) - (1 / n)
