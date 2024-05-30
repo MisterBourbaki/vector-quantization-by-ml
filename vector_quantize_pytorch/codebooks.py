@@ -187,18 +187,6 @@ def batched_embedding(indices, embeds):
     embeds = repeat(embeds, "h c d -> h b c d", b=batch)
     return embeds.gather(2, indices)
 
-
-# regularization losses
-
-
-def orthogonal_loss_fn(t):
-    # eq (2) from https://arxiv.org/abs/2112.00384
-    h, n = t.shape[:2]
-    normed_codes = normalize(t, p=2, dim=-1)
-    cosine_sim = einsum("h i d, h j d -> h i j", normed_codes, normed_codes)
-    return (cosine_sim**2).sum() / (h * n**2) - (1 / n)
-
-
 class EuclideanCodebook(nn.Module):
     def __init__(
         self,
