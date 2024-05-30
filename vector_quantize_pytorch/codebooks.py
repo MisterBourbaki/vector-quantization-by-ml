@@ -8,7 +8,6 @@ from torch.cuda.amp import autocast
 from vector_quantize_pytorch.utils import (
     default,
     gumbel_sample,
-    identity,
     l2norm,
     pack_one,
     unpack_one,
@@ -224,7 +223,7 @@ class EuclideanCodebook(nn.Module):
         affine_param_codebook_decay=0.9,
     ):
         super().__init__()
-        self.transform_input = identity
+        self.transform_input = (lambda x: x)
 
         self.decay = decay
         self.ema_update = ema_update
