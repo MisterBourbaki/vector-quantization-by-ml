@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from einops import pack, unpack
-from torch import einsum, nn
+from torch import einsum
 
 
 def pack_one(t, pattern):
@@ -73,16 +73,6 @@ def gumbel_sample(
         one_hot = one_hot + π1 - π1.detach()
 
     return ind, one_hot
-
-
-def Sequential(*modules):
-    modules = [*filter(exists, modules)]
-    if len(modules) == 0:
-        return None
-    elif len(modules) == 1:
-        return modules[0]
-
-    return nn.Sequential(*modules)
 
 
 def orthogonal_loss_fn(t):

@@ -9,7 +9,6 @@ from torch.optim import Optimizer
 
 from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebook
 from vector_quantize_pytorch.utils import (
-    Sequential,
     default,
     gumbel_sample,
     identity,
@@ -69,16 +68,15 @@ class VectorQuantize(nn.Module):
 
         requires_projection = codebook_input_dim != dim
 
-        self.project_in = (
-            Sequential(
+        if requires_projection and layernorm_after_project_in:
+            self.project_in = nn.Sequential(
                 nn.Linear(dim, codebook_input_dim),
-                nn.LayerNorm(codebook_input_dim)
-                if layernorm_after_project_in
-                else None,
+                nn.LayerNorm(codebook_input_dim),
             )
-            if requires_projection
-            else nn.Identity()
-        )
+        elif requires_projection:
+            self.project_in = nn.Linear(dim, codebook_input_dim)
+        else:
+            self.project_in = nn.Identity()
 
         self.project_out = (
             nn.Linear(codebook_input_dim, dim) if requires_projection else nn.Identity()
