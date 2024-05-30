@@ -13,3 +13,5 @@
 ### Removed
 
 * Functions `Sequential` and `exists`, which were not necessary.
+* Function `identity` function, replaced in EuclideanCodebook by a simple lambda function.
+* Function `l2norm`, simply replace by normalize.
