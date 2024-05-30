@@ -12,6 +12,7 @@ extend-select = [
   "F",
   "I",
   "PL",
+  "N",
 ]
 ignore = ["PLR0913"]
 
