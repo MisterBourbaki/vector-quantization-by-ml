@@ -11,7 +11,6 @@ from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebo
 from vector_quantize_pytorch.utils import (
     default,
     gumbel_sample,
-    identity,
     orthogonal_loss_fn,
     pack_one,
     unpack_one,
@@ -252,8 +251,6 @@ class VectorQuantize(nn.Module):
             ein_rhs_eq = "h b n d" if self.separate_codebook_per_head else "1 (b h) n d"
             x = rearrange(x, f"b n (h d) -> {ein_rhs_eq}", h=heads)
 
-        # l2norm for cosine sim, otherwise identity
-
         x = self._codebook.transform_input(x)
 
         # codebook forward kwargs
@@ -300,13 +297,10 @@ class VectorQuantize(nn.Module):
 
         if self.training:
             # determine code to use for commitment loss
-            maybe_detach = (
-                torch.detach
-                if not self.learnable_codebook or freeze_codebook
-                else identity
-            )
-
-            commit_quantize = maybe_detach(quantize)
+            if not self.learnable_codebook or freeze_codebook:
+                commit_quantize = quantize.detach()
+            else: 
+                commit_quantize = quantize
 
             # straight through
 

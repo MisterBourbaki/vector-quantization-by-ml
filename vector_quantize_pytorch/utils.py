@@ -15,11 +15,6 @@ def unpack_one(t, ps, pattern):
 def default(val, d):
     return val if (val is not None) else d
 
-
-def identity(t):
-    return t
-
-
 def l2norm(t):
     return F.normalize(t, p=2, dim=-1)
 
