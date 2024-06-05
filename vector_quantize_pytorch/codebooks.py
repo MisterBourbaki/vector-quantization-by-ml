@@ -137,6 +137,7 @@ def batched_bincount(x, *, minlength):
     target.scatter_add_(-1, x, values)
     return target
 
+
 ## TODO:
 # Use this https://www.kernel-operations.io/keops/_auto_tutorials/kmeans/plot_kmeans_torch.html#sphx-glr-auto-tutorials-kmeans-plot-kmeans-torch-py
 # to improve the kmeans implementation
@@ -190,6 +191,7 @@ def batched_embedding(indices, embeds):
     embeds = repeat(embeds, "h c d -> h b c d", b=batch)
     return embeds.gather(2, indices)
 
+
 class EuclideanCodebook(nn.Module):
     def __init__(
         self,
@@ -205,7 +207,7 @@ class EuclideanCodebook(nn.Module):
         reset_cluster_size=None,
         use_ddp=False,
         learnable_codebook=False,
-        gumbel_sample: Callable=gumbel_sample,
+        gumbel_sample: Callable = gumbel_sample,
         sample_codebook_temp=1.0,
         ema_update=True,
         affine_param=False,
@@ -514,7 +516,7 @@ class CosineSimCodebook(nn.Module):
         reset_cluster_size=None,
         use_ddp=False,
         learnable_codebook=False,
-        gumbel_sample: Callable=gumbel_sample,
+        gumbel_sample: Callable = gumbel_sample,
         sample_codebook_temp=1.0,
         ema_update=True,
     ):
@@ -615,16 +617,24 @@ class CosineSimCodebook(nn.Module):
         self.replace(batch_samples, batch_mask=expired_codes)
 
     @autocast(enabled=False)
-    def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
+    def forward(
+        self,
+        x,
+        sample_codebook_temp: Optional[float] = None,
+        mask=None,
+        freeze_codebook=False,
+    ):
         needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
+        sample_codebook_temp = (
+            self.sample_codebook_temp
+            if sample_codebook_temp is None
+            else sample_codebook_temp
+        )
 
         x = x.float()
 
         if needs_codebook_dim:
             x = rearrange(x, "... -> 1 ...")
-
-        dtype = x.dtype
 
         flatten, ps = pack_one(x, "h * d")
 
@@ -654,29 +664,7 @@ class CosineSimCodebook(nn.Module):
             quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update and not freeze_codebook:
-            if mask:
-                embed_onehot[~mask] = 0.0
-
-            bins = embed_onehot.sum(dim=1)
-            self.all_reduce_fn(bins)
-
-            ema_inplace(self.cluster_size.data, bins, self.decay)
-
-            embed_sum = einsum("h n d, h n c -> h c d", flatten, embed_onehot)
-            embed_sum = embed_sum.contiguous()
-            self.all_reduce_fn(embed_sum)
-
-            ema_inplace(self.embed_avg.data, embed_sum, self.decay)
-
-            cluster_size = laplace_smoothing(
-                self.cluster_size, self.codebook_size, self.eps
-            ) * self.cluster_size.sum(dim=-1, keepdim=True)
-
-            embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
-            embed_normalized = normalize(embed_normalized, p=2, dim=-1)
-
-            self.embed.data.copy_(normalize(embed_normalized, p=2, dim=-1))
-            self.expire_codes_(x)
+            self.update_codebooks(x, mask, flatten, embed_onehot)
 
         if needs_codebook_dim:
             quantize = rearrange(quantize, "1 ... -> ...")
@@ -684,3 +672,28 @@ class CosineSimCodebook(nn.Module):
 
         dist = unpack_one(dist, ps, "h * d")
         return quantize, embed_ind, dist
+
+    def update_codebooks(self, x, mask, flatten, embed_onehot):
+        if mask:
+            embed_onehot[~mask] = 0.0
+
+        bins = embed_onehot.sum(dim=1)
+        self.all_reduce_fn(bins)
+
+        ema_inplace(self.cluster_size.data, bins, self.decay)
+
+        embed_sum = einsum("h n d, h n c -> h c d", flatten, embed_onehot)
+        embed_sum = embed_sum.contiguous()
+        self.all_reduce_fn(embed_sum)
+
+        ema_inplace(self.embed_avg.data, embed_sum, self.decay)
+
+        cluster_size = laplace_smoothing(
+            self.cluster_size, self.codebook_size, self.eps
+        ) * self.cluster_size.sum(dim=-1, keepdim=True)
+
+        embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
+        embed_normalized = normalize(embed_normalized, p=2, dim=-1)
+
+        self.embed.data.copy_(normalize(embed_normalized, p=2, dim=-1))
+        self.expire_codes_(x)
