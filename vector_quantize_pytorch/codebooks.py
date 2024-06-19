@@ -149,11 +149,10 @@ def kmeans(
     sample_fn=batched_sample_vectors,
     all_reduce_fn=noop,
 ):
-    num_codebooks, dim, dtype, device = (
+    num_codebooks, dim, dtype = (
         samples.shape[0],
         samples.shape[-1],
         samples.dtype,
-        samples.device,
     )
 
     means = sample_fn(samples, num_clusters)
@@ -184,6 +183,27 @@ def kmeans(
 
     return means, bins
 
+def kmeans_improved(vectors, num_clusters=10, num_iter=10):
+    """Implements Lloyd's algorithm for the Euclidean metric."""
+
+    K = num_clusters
+    _, D = vectors.shape  
+    centroids = vectors[:K, :].clone()  
+    for _ in range(num_iter):
+        distances = (
+            torch.sum(vectors**2, dim=1, keepdim=True)
+            + torch.sum(centroids**2, dim=1)
+            - 2 * torch.matmul(vectors, centroids.t())
+        )
+        class_labels = distances.argmin(dim=1).long().view(-1)
+
+        centroids.zero_()
+        centroids.scatter_add_(0, class_labels[:, None].repeat(1, D), vectors)
+        num_points_per_cluster = (
+            torch.bincount(class_labels, minlength=K).type_as(centroids).view(K, 1)
+        )
+        centroids /= num_points_per_cluster
+    return class_labels, centroids
 
 def batched_embedding(indices, embeds):
     batch, dim = indices.shape[1], embeds.shape[-1]

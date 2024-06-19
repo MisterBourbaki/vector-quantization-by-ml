@@ -2,12 +2,12 @@ from functools import partial
 from typing import Callable
 
 import torch
-import torch.nn.functional as F
+from torch. nn.functional import mse_loss, cross_entropy
 from einops import rearrange, repeat
 from torch import distributed, nn
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebook
+from vector_quantize_pytorch.codebooks import kmeans_improved, CosineSimCodebook, EuclideanCodebook
 from vector_quantize_pytorch.utils import (
     default,
     gumbel_sample,
@@ -269,7 +269,7 @@ class VectorQuantize(nn.Module):
 
         if should_inplace_optimize and self.training and not freeze_codebook:
             if mask:
-                loss = F.mse_loss(quantize, x.detach(), reduction="none")
+                loss = mse_loss(quantize, x.detach(), reduction="none")
 
                 loss_mask = mask
                 if is_multiheaded:
@@ -283,7 +283,7 @@ class VectorQuantize(nn.Module):
                 loss = loss[loss_mask].mean()
 
             else:
-                loss = F.mse_loss(quantize, x.detach())
+                loss = mse_loss(quantize, x.detach())
 
             loss.backward()
             self.in_place_codebook_optimizer.step()
@@ -323,7 +323,7 @@ class VectorQuantize(nn.Module):
             else:
                 dist_einops_eq = "1 (b h) n l -> b l n h"
 
-            ce_loss = F.cross_entropy(
+            ce_loss = cross_entropy(
                 rearrange(distances, dist_einops_eq, b=shape[0]), codes, ignore_index=-1
             )
 
@@ -367,7 +367,7 @@ class VectorQuantize(nn.Module):
                     commit_loss = calculate_ce_loss(embed_ind)
                 elif mask:
                     # with variable lengthed sequences
-                    commit_loss = F.mse_loss(commit_quantize, x, reduction="none")
+                    commit_loss = mse_loss(commit_quantize, x, reduction="none")
 
                     loss_mask = mask
                     if is_multiheaded:
@@ -380,7 +380,7 @@ class VectorQuantize(nn.Module):
 
                     commit_loss = commit_loss[loss_mask].mean()
                 else:
-                    commit_loss = F.mse_loss(commit_quantize, x)
+                    commit_loss = mse_loss(commit_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 
@@ -441,3 +441,90 @@ class VectorQuantize(nn.Module):
             )
 
         return quantize, embed_ind, loss
+
+class VectorQuantizer(nn.Module):
+    """The simplest of them all.
+    """
+
+    def __init__(self, num_embeddings: int, embedding_dim: int, beta: float = 0.25, kmeans_init: bool = False):
+        super().__init__()
+        self.K = num_embeddings
+        self.D = embedding_dim
+        self.beta = beta
+
+        if not kmeans_init:
+            self.codebook = nn.Embedding(self.K, self.D)
+            self.codebook.weight.data.uniform_(-1 / self.K, 1 / self.K)
+            self._is_init = True
+        else:
+            self._is_init = False
+
+    @property
+    def resolution(self) -> torch.Tensor:
+        """Compute the resolution of the Vector Quantizer.
+
+        The resolution is the log2 of the number of embeddings divided by
+        the dimension of the embedding. This is the same as the bitrate by dimension.
+
+        Returns
+        -------
+        torch.Tensor
+            the log2 of the number of embedding divided by the dimension.
+        """
+        return torch.log2(self.K) / self.D
+
+    def encode(self, latents: torch.Tensor) -> torch.Tensor:
+        """Encode the latents by nearest neighboors search.
+
+        Parameters
+        ----------
+        latents : torch.Tensor
+            should be channel last!
+
+        Returns
+        -------
+        torch.Tensor
+            tensor holding the coding indices for latents.
+        """
+        encodings_shape = latents.shape[:-1]
+        flat_latents = latents.view(-1, self.D)
+
+        distances = (
+            torch.sum(flat_latents**2, dim=1, keepdim=True)
+            + torch.sum(self.codebook.weight**2, dim=1)
+            - 2 * torch.matmul(flat_latents, self.codebook.weight.t())
+        )
+
+        encoding_inds = torch.argmin(distances, dim=1)
+        return encoding_inds.view(encodings_shape)
+
+    def decode(self, indices: torch.Tensor) -> torch.Tensor:
+        """Decode the given indices into vectors, using the codebook.
+
+        Parameters
+        ----------
+        indices : torch.Tensor
+            tensor holding indices as integers
+
+        Returns
+        -------
+        torch.Tensor
+            a channel last tensor
+        """
+        return self.codebook(indices)
+
+    def forward(self, latents: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if not self._is_init:
+            _, centroids = kmeans_improved(latents, num_clusters=self.K)
+            self.codebook = nn.Embedding(self.K, self.D).from_pretrained(centroids)
+            self._is_init = True
+
+        quantized_latents = self.decode(self.encode(latents))
+
+        commitment_loss = mse_loss(quantized_latents.detach(), latents)
+        embedding_loss = mse_loss(quantized_latents, latents.detach())
+
+        vq_loss = commitment_loss * self.beta + embedding_loss
+
+        quantized_latents = latents + (quantized_latents - latents).detach()
+        return quantized_latents, vq_loss
