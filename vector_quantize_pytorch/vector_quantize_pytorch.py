@@ -20,12 +20,11 @@ from vector_quantize_pytorch.utils import (
     noop,
     pack_one,
     unpack_one,
-    entropy
+    entropy,
+    identity
 )
 
 
-def identity(t):
-    return t
 
 def l2norm(t):
     return F.normalize(t, p = 2, dim = -1)

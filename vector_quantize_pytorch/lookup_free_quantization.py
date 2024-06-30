@@ -15,7 +15,7 @@ from math import ceil, log2
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange, reduce
+from einops import rearrange, reduce, pack
 from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
@@ -26,6 +26,7 @@ from vector_quantize_pytorch.utils import (
     exists,
     pack_one,
     unpack_one,
+    identity
 )
 
 # constants
@@ -48,36 +49,9 @@ def maybe_distributed_mean(t):
     t = t / dist.get_world_size()
     return t
 
-# helper functions
-
-def exists(v):
-    return v is not None
-
-def identity(t):
-    return t
-
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg() if callable(arg) else arg
-    return None
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
-
 def l2norm(t):
     return F.normalize(t, dim = -1)
 
-# entropy
-
-def log(t, eps = 1e-5):
-    return t.clamp(min = eps).log()
-
-def entropy(prob):
-    return (-prob * log(prob)).sum(dim=-1)
 
 # cosine sim linear
 
