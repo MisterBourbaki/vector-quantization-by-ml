@@ -10,14 +10,23 @@ from math import log2, ceil
 from functools import partial, cache
 from collections import namedtuple
 import torch.distributed as dist
+from functools import partial
+from math import ceil, log2
 
 import torch
-from torch import nn, einsum
 import torch.nn.functional as F
-from torch.nn import Module
+from einops import rearrange, reduce
+from torch import einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
-from einops import rearrange, reduce, pack, unpack
+from vector_quantize_pytorch.utils import (
+    default,
+    entropy,
+    exists,
+    pack_one,
+    unpack_one,
+)
 
 # constants
 
@@ -121,7 +130,7 @@ class LFQ(Module):
         assert exists(dim) or exists(codebook_size), 'either dim or codebook_size must be specified for LFQ'
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
-        codebook_size = default(codebook_size, lambda: 2 ** dim)
+        codebook_size = default(codebook_size, 2 ** dim)
         self.codebook_size = codebook_size
 
         codebook_dim = int(log2(codebook_size))
