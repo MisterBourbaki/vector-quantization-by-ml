@@ -10,14 +10,24 @@ from math import log2, ceil
 from functools import partial, cache
 from collections import namedtuple
 import torch.distributed as dist
+from functools import partial
+from math import ceil, log2
 
 import torch
-from torch import nn, einsum
 import torch.nn.functional as F
-from torch.nn import Module
+from einops import rearrange, reduce, pack
+from torch import einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
-from einops import rearrange, reduce, pack, unpack
+from vector_quantize_pytorch.utils import (
+    default,
+    entropy,
+    exists,
+    pack_one,
+    unpack_one,
+    identity
+)
 
 # constants
 
@@ -39,36 +49,9 @@ def maybe_distributed_mean(t):
     t = t / dist.get_world_size()
     return t
 
-# helper functions
-
-def exists(v):
-    return v is not None
-
-def identity(t):
-    return t
-
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg() if callable(arg) else arg
-    return None
-
-def pack_one(t, pattern):
-    return pack([t], pattern)
-
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
-
 def l2norm(t):
     return F.normalize(t, dim = -1)
 
-# entropy
-
-def log(t, eps = 1e-5):
-    return t.clamp(min = eps).log()
-
-def entropy(prob):
-    return (-prob * log(prob)).sum(dim=-1)
 
 # cosine sim linear
 
@@ -121,7 +104,7 @@ class LFQ(Module):
         assert exists(dim) or exists(codebook_size), 'either dim or codebook_size must be specified for LFQ'
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
-        codebook_size = default(codebook_size, lambda: 2 ** dim)
+        codebook_size = default(codebook_size, 2 ** dim)
         self.codebook_size = codebook_size
 
         codebook_dim = int(log2(codebook_size))

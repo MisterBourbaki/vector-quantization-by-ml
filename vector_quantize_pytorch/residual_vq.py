@@ -11,22 +11,12 @@ from torch import nn, Tensor
 from torch.nn import Module, ModuleList
 import torch.nn.functional as F
 import torch.distributed as dist
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
-
-from einops import rearrange, repeat, reduce, pack, unpack
-
+from einops import pack, rearrange, reduce, unpack
 from einx import get_at
+from torch import Tensor, nn
 
-# helper functions
-
-def exists(val):
-    return val is not None
-
-def default(val, d):
-    return val if exists(val) else d
-
-def round_up_multiple(num, mult):
-    return ceil(num / mult) * mult
+from vector_quantize_pytorch.utils import default, exists, round_up_multiple
+from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 # distributed helpers
 
