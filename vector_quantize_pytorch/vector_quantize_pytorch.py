@@ -1,6 +1,8 @@
-from functools import partial
+from functools import partial, cache
+from collections import namedtuple
 
 import torch
+from torch.nn import Module
 from torch import nn, einsum
 import torch.nn.functional as F
 import torch.distributed as distributed
@@ -43,6 +45,9 @@ def cdist(x, y):
 
 def log(t, eps = 1e-20):
     return torch.log(t.clamp(min = eps))
+
+def entropy(prob, eps = 1e-5):
+    return (-prob * log(prob, eps = eps)).sum(dim = -1)
 
 def ema_inplace(old, new, decay):
     is_mps = str(old.device).startswith('mps:')
@@ -139,6 +144,8 @@ def sample_multinomial(total_count, probs):
         total_count -= s
         remainder -= p
 
+    assert total_count == 0, f'invalid total count {total_count}'
+
     return sample.to(device)
 
 def all_gather_sizes(x, dim):
@@ -234,6 +241,20 @@ def batched_embedding(indices, embeds):
     embeds = repeat(embeds, 'h c d -> h b c d', b = batch)
     return embeds.gather(2, indices)
 
+# distributed helpers
+
+@cache
+def is_distributed():
+    return distributed.is_initialized() and distributed.get_world_size() > 1
+
+def maybe_distributed_mean(t):
+    if not is_distributed():
+        return t
+
+    distributed.all_reduce(t)
+    t = t / distributed.get_world_size()
+    return t
+
 # regularization losses
 
 def orthogonal_loss_fn(t):
@@ -245,7 +266,7 @@ def orthogonal_loss_fn(t):
 
 # distance types
 
-class EuclideanCodebook(nn.Module):
+class EuclideanCodebook(Module):
     def __init__(
         self,
         dim,
@@ -259,6 +280,7 @@ class EuclideanCodebook(nn.Module):
         threshold_ema_dead_code = 2,
         reset_cluster_size = None,
         use_ddp = False,
+        distributed_replace_codes = True,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
@@ -292,6 +314,10 @@ class EuclideanCodebook(nn.Module):
         assert not (use_ddp and num_codebooks > 1 and kmeans_init), 'kmeans init is not compatible with multiple codebooks in distributed environment for now'
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+
+        self.distributed_replace_codes = distributed_replace_codes
+        self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
+
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -418,15 +444,14 @@ class EuclideanCodebook(nn.Module):
         self.update_with_decay('batch_variance', batch_variance, self.affine_param_batch_decay)
 
     def replace(self, batch_samples, batch_mask):
-        for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
-            if not torch.any(mask):
-                continue
-
-            sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
+        for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
+            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
-            
-            self.embed.data[ind][mask] = sampled
 
+            if not self.distributed_replace_codes:
+                sampled = maybe_distributed_mean(sampled)
+
+            self.embed.data[ind][mask] = sampled
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
@@ -520,7 +545,7 @@ class EuclideanCodebook(nn.Module):
 
         return quantize, embed_ind, dist
 
-class CosineSimCodebook(nn.Module):
+class CosineSimCodebook(Module):
     def __init__(
         self,
         dim,
@@ -534,10 +559,11 @@ class CosineSimCodebook(nn.Module):
         threshold_ema_dead_code = 2,
         reset_cluster_size = None,
         use_ddp = False,
+        distributed_replace_codes = True,
         learnable_codebook = False,
         gumbel_sample = gumbel_sample,
         sample_codebook_temp = 1.,
-        ema_update = True
+        ema_update = True,
     ):
         super().__init__()
         self.transform_input = l2norm
@@ -563,6 +589,10 @@ class CosineSimCodebook(nn.Module):
         self.sample_codebook_temp = sample_codebook_temp
 
         self.sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans else batched_sample_vectors
+
+        self.distributed_replace_codes = distributed_replace_codes
+        self.replace_sample_fn = sample_vectors_distributed if use_ddp and sync_kmeans and distributed_replace_codes else batched_sample_vectors
+
         self.kmeans_all_reduce_fn = distributed.all_reduce if use_ddp and sync_kmeans else noop
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -604,12 +634,12 @@ class CosineSimCodebook(nn.Module):
     def replace(self, batch_samples, batch_mask):
         batch_samples = l2norm(batch_samples)
 
-        for ind, (samples, mask) in enumerate(zip(batch_samples.unbind(dim = 0), batch_mask.unbind(dim = 0))):
-            if not torch.any(mask):
-                continue
-
-            sampled = self.sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
+        for ind, (samples, mask) in enumerate(zip(batch_samples, batch_mask)):
+            sampled = self.replace_sample_fn(rearrange(samples, '... -> 1 ...'), mask.sum().item())
             sampled = rearrange(sampled, '1 ... -> ...')
+
+            if not self.distributed_replace_codes:
+                sampled = maybe_distributed_mean(sampled)
 
             self.embed.data[ind][mask] = sampled
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
@@ -696,7 +726,14 @@ class CosineSimCodebook(nn.Module):
 
 # main class
 
-class VectorQuantize(nn.Module):
+LossBreakdown = namedtuple('LossBreakdown', [
+    'commitment',
+    'codebook_diversity',
+    'orthogonal_reg',
+    'inplace_optimize',
+])
+
+class VectorQuantize(Module):
     def __init__(
         self,
         dim,
@@ -720,9 +757,12 @@ class VectorQuantize(nn.Module):
         orthogonal_reg_weight = 0.,
         orthogonal_reg_active_codes_only = False,
         orthogonal_reg_max_codes = None,
+        codebook_diversity_loss_weight = 0.,
+        codebook_diversity_temperature = 100.,
         stochastic_sample_codes = False,
         sample_codebook_temp = 1.,
         straight_through = False,
+        distributed_replace_codes = True,
         reinmax = False,  # using reinmax for improved straight-through, assuming straight through helps at all
         sync_codebook = None,
         sync_affine_param = False,
@@ -732,7 +772,7 @@ class VectorQuantize(nn.Module):
         affine_param = False,
         affine_param_batch_decay = 0.99,
         affine_param_codebook_decay = 0.9, 
-        sync_update_v = 0. # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
+        sync_update_v = 0., # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
         self.dim = dim
@@ -754,16 +794,23 @@ class VectorQuantize(nn.Module):
         self.has_projections = requires_projection
 
         self.eps = eps
+
+        self.has_commitment_loss = commitment_weight > 0.
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss # whether to use cross entropy loss to codebook as commitment loss
 
         self.learnable_codebook = learnable_codebook
 
-        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0
+        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
         self.orthogonal_reg_max_codes = orthogonal_reg_max_codes
+
+        has_codebook_diversity_loss = codebook_diversity_loss_weight > 0.
+        self.has_codebook_diversity_loss = has_codebook_diversity_loss
+        self.codebook_diversity_temperature = codebook_diversity_temperature
+        self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
 
         assert not (ema_update and learnable_codebook), 'learnable codebook not compatible with EMA update'
 
@@ -782,7 +829,7 @@ class VectorQuantize(nn.Module):
         )
 
         if not exists(sync_codebook):
-            sync_codebook = distributed.is_initialized() and distributed.get_world_size() > 1
+            sync_codebook = is_distributed()
 
         codebook_kwargs = dict(
             dim = codebook_dim,
@@ -798,7 +845,8 @@ class VectorQuantize(nn.Module):
             learnable_codebook = has_codebook_orthogonal_loss or learnable_codebook,
             sample_codebook_temp = sample_codebook_temp,
             gumbel_sample = gumbel_sample_fn,
-            ema_update = ema_update
+            ema_update = ema_update,
+            distributed_replace_codes = distributed_replace_codes
         )
 
         if affine_param:
@@ -819,6 +867,8 @@ class VectorQuantize(nn.Module):
 
         self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
+
+        self.register_buffer('zero', torch.tensor(0.), persistent = False)
 
     @property
     def codebook(self):
@@ -868,7 +918,8 @@ class VectorQuantize(nn.Module):
         indices = None,
         mask = None,
         sample_codebook_temp = None,
-        freeze_codebook = False
+        freeze_codebook = False,
+        return_loss_breakdown = False,
     ):
         orig_input = x
 
@@ -918,6 +969,10 @@ class VectorQuantize(nn.Module):
 
         quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
 
+        # losses for loss breakdown
+
+        commit_loss = orthogonal_reg_loss = inplace_optimize_loss = codebook_diversity_loss = self.zero
+
         # one step in-place update
 
         if should_inplace_optimize and self.training and not freeze_codebook:
@@ -937,6 +992,8 @@ class VectorQuantize(nn.Module):
             loss.backward()
             self.in_place_codebook_optimizer.step()
             self.in_place_codebook_optimizer.zero_grad()
+
+            inplace_optimize_loss = loss
 
             # quantize again
 
@@ -999,7 +1056,18 @@ class VectorQuantize(nn.Module):
         loss = torch.tensor([0.], device = device, requires_grad = self.training)
 
         if self.training:
-            if self.commitment_weight > 0:
+            # calculate codebook diversity loss (negative of entropy) if needed
+
+            if self.has_codebook_diversity_loss:
+                prob = (-distances * self.codebook_diversity_temperature).softmax(dim = -1)
+                avg_prob = reduce(prob, '... n l -> n l', 'mean')
+                codebook_diversity_loss = -entropy(avg_prob).mean()
+
+                loss = loss + codebook_diversity_loss * self.codebook_diversity_loss_weight
+
+            # commitment loss
+
+            if self.has_commitment_loss:
                 if self.commitment_use_cross_entropy_loss:
                     if exists(mask):
                         ce_loss_mask = mask
@@ -1075,4 +1143,9 @@ class VectorQuantize(nn.Module):
                 orig_input
             )
 
-        return quantize, embed_ind, loss
+        if not return_loss_breakdown:
+            return quantize, embed_ind, loss
+
+        loss_breakdown = LossBreakdown(commit_loss, codebook_diversity_loss, orthogonal_reg_loss, inplace_optimize_loss)
+
+        return quantize, embed_ind, loss, loss_breakdown

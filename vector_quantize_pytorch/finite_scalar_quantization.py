@@ -4,6 +4,7 @@ Code adapted from Jax version in Appendix A.1
 """
 
 from __future__ import annotations
+from functools import wraps
 from typing import List, Tuple
 
 import torch
@@ -24,6 +25,14 @@ def default(*args):
         if exists(arg):
             return arg
     return None
+
+def maybe(fn):
+    @wraps(fn)
+    def inner(x, *args, **kwargs):
+        if not exists(x):
+            return x
+        return fn(x, *args, **kwargs)
+    return inner
 
 def pack_one(t, pattern):
     return pack([t], pattern)
@@ -50,7 +59,8 @@ class FSQ(Module):
         scale: float | None = None,
         allowed_dtypes: Tuple[torch.dtype, ...] = (torch.float32, torch.float64),
         channel_first: bool = False,
-        projection_has_bias: bool = True
+        projection_has_bias: bool = True,
+        return_indices = True,
     ):
         super().__init__()
         _levels = torch.tensor(levels, dtype=int32)
@@ -82,10 +92,11 @@ class FSQ(Module):
 
         self.has_projections = has_projections
 
-        self.codebook_size = self._levels.prod().item()
-
-        implicit_codebook = self._indices_to_codes(torch.arange(self.codebook_size))
-        self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
+        self.return_indices = return_indices
+        if return_indices:
+            self.codebook_size = self._levels.prod().item()
+            implicit_codebook = self._indices_to_codes(torch.arange(self.codebook_size))
+            self.register_buffer("implicit_codebook", implicit_codebook, persistent = False)
 
         self.allowed_dtypes = allowed_dtypes
 
@@ -129,6 +140,7 @@ class FSQ(Module):
 
     def indices_to_codes(self, indices):
         """ Inverse of `codes_to_indices`. """
+        assert exists(indices)
 
         is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
 
@@ -176,7 +188,13 @@ class FSQ(Module):
             z = z.float()
 
         codes = self.quantize(z)
-        indices = self.codes_to_indices(codes)
+
+        # returning indices could be optional
+
+        indices = None
+
+        if self.return_indices:
+            indices = self.codes_to_indices(codes)
 
         codes = rearrange(codes, 'b n c d -> b n (c d)')
 
@@ -195,10 +213,10 @@ class FSQ(Module):
             out = unpack_one(out, ps, 'b * d')
             out = rearrange(out, 'b ... d -> b d ...')
 
-            indices = unpack_one(indices, ps, 'b * c')
+            indices = maybe(unpack_one)(indices, ps, 'b * c')
 
-        if not self.keep_num_codebooks_dim:
-            indices = rearrange(indices, '... 1 -> ...')
+        if not self.keep_num_codebooks_dim and self.return_indices:
+            indices = maybe(rearrange)(indices, '... 1 -> ...')
 
         # return quantized output and indices
 

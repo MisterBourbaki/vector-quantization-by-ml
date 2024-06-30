@@ -1,11 +1,16 @@
+from __future__ import annotations
+from typing import List
+
 import random
 from math import ceil
-from functools import partial
+from functools import partial, cache
 from itertools import zip_longest
 
 import torch
-from torch import nn
+from torch import nn, Tensor
+from torch.nn import Module, ModuleList
 import torch.nn.functional as F
+import torch.distributed as dist
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 from einops import rearrange, repeat, reduce, pack, unpack
@@ -23,9 +28,15 @@ def default(val, d):
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
 
+# distributed helpers
+
+@cache
+def is_distributed():
+    return dist.is_initialized() and dist.get_world_size() > 1
+
 # main class
 
-class ResidualVQ(nn.Module):
+class ResidualVQ(Module):
     """ Follows Algorithm 1. in https://arxiv.org/pdf/2107.03312.pdf """
     def __init__(
         self,
@@ -54,7 +65,7 @@ class ResidualVQ(nn.Module):
         self.num_quantizers = num_quantizers
 
         self.accept_image_fmap = accept_image_fmap
-        self.layers = nn.ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
+        self.layers = ModuleList([VectorQuantize(dim = codebook_dim, codebook_dim = codebook_dim, accept_image_fmap = accept_image_fmap, **kwargs) for _ in range(num_quantizers)])
 
         assert all([not vq.has_projections for vq in self.layers])
 
@@ -122,7 +133,7 @@ class ResidualVQ(nn.Module):
         self,
         x,
         mask = None,
-        indices = None,
+        indices: Tensor | List[Tensor] | None = None,
         return_all_codes = False,
         sample_codebook_temp = None,
         freeze_codebook = False,
@@ -140,6 +151,9 @@ class ResidualVQ(nn.Module):
         all_losses = []
         all_indices = []
 
+        if isinstance(indices, list):
+            indices = torch.stack(indices)
+
         if return_loss:
             assert not torch.any(indices == -1), 'some of the residual vq indices were dropped out. please use indices derived when the module is in eval mode to derive cross entropy loss'
             ce_losses = []
@@ -150,7 +164,19 @@ class ResidualVQ(nn.Module):
         # also prepare null indices and loss
 
         if should_quantize_dropout:
-            rand = random.Random(rand_quantize_dropout_fixed_seed) if exists(rand_quantize_dropout_fixed_seed) else random
+
+            if exists(rand_quantize_dropout_fixed_seed):
+                # seed is manually passed in
+                rand = random.Random(rand_quantize_dropout_fixed_seed)
+
+            elif is_distributed():
+                # in distributed environment, synchronize a random seed value if not given
+                t = torch.tensor(random.randrange(10_000))
+                dropout_seed = dist.all_reduce(t).item()
+                rand = random.Random(dropout_seed)
+
+            else:
+                rand = random
 
             rand_quantize_dropout_index = rand.randrange(self.quantize_dropout_cutoff_index, num_quant)
 
@@ -221,7 +247,7 @@ class ResidualVQ(nn.Module):
 
 # grouped residual vq
 
-class GroupedResidualVQ(nn.Module):
+class GroupedResidualVQ(Module):
     def __init__(
         self,
         *,
@@ -238,7 +264,7 @@ class GroupedResidualVQ(nn.Module):
 
         self.accept_image_fmap = accept_image_fmap
 
-        self.rvqs = nn.ModuleList([])
+        self.rvqs = ModuleList([])
 
         for _ in range(groups):
             self.rvqs.append(ResidualVQ(
@@ -288,7 +314,7 @@ class GroupedResidualVQ(nn.Module):
             sample_codebook_temp = sample_codebook_temp,
             mask = mask,
             freeze_codebook = freeze_codebook,
-            rand_quantize_dropout_fixed_seed = random.randint(0, 1e7)
+            rand_quantize_dropout_fixed_seed = random.randint(0, int(1e7))
         )
 
         # invoke residual vq on each group
