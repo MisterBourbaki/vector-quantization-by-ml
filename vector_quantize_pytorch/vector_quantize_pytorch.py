@@ -1,27 +1,24 @@
-from functools import partial, cache
 from collections import namedtuple
+from functools import cache, partial
 from typing import Callable
 
 import torch
-from torch.nn import Module
-from torch import nn, einsum
-import torch.nn.functional as F
-import torch.distributed as distributed
 import torch.nn.functional as F
 from einops import rearrange, reduce, repeat
-from torch import einsum, nn
+from torch import distributed, einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 from torch.optim import Optimizer
 
 from vector_quantize_pytorch.utils import (
     default,
+    entropy,
     exists,
+    identity,
     log,
     noop,
     pack_one,
     unpack_one,
-    entropy,
-    identity,
 )
 
 
@@ -1208,23 +1205,22 @@ class VectorQuantize(Module):
                         embed_ind.masked_fill_(~ce_loss_mask, -1)
 
                     commit_loss = calculate_ce_loss(embed_ind)
+                elif exists(mask):
+                    # with variable lengthed sequences
+                    commit_loss = F.mse_loss(commit_quantize, x, reduction="none")
+
+                    loss_mask = mask
+                    if is_multiheaded:
+                        loss_mask = repeat(
+                            loss_mask,
+                            "b n -> c (b h) n",
+                            c=commit_loss.shape[0],
+                            h=commit_loss.shape[1] // mask.shape[0],
+                        )
+
+                    commit_loss = commit_loss[loss_mask].mean()
                 else:
-                    if exists(mask):
-                        # with variable lengthed sequences
-                        commit_loss = F.mse_loss(commit_quantize, x, reduction="none")
-
-                        loss_mask = mask
-                        if is_multiheaded:
-                            loss_mask = repeat(
-                                loss_mask,
-                                "b n -> c (b h) n",
-                                c=commit_loss.shape[0],
-                                h=commit_loss.shape[1] // mask.shape[0],
-                            )
-
-                        commit_loss = commit_loss[loss_mask].mean()
-                    else:
-                        commit_loss = F.mse_loss(commit_quantize, x)
+                    commit_loss = F.mse_loss(commit_quantize, x)
 
                 loss = loss + commit_loss * self.commitment_weight
 

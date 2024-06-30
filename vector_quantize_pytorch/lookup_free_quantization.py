@@ -6,16 +6,14 @@ In the simplest setup, each dimension is quantized into {-1, 1}.
 An entropy penalty is used to encourage utilization.
 """
 
-from math import log2, ceil
-from functools import partial, cache
 from collections import namedtuple
-import torch.distributed as dist
-from functools import partial
+from functools import cache, partial
 from math import ceil, log2
 
 import torch
+import torch.distributed as dist
 import torch.nn.functional as F
-from einops import rearrange, reduce, pack
+from einops import rearrange, reduce
 from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
@@ -24,9 +22,9 @@ from vector_quantize_pytorch.utils import (
     default,
     entropy,
     exists,
+    identity,
     pack_one,
     unpack_one,
-    identity,
 )
 
 # constants
