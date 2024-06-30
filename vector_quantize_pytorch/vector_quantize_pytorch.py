@@ -1,5 +1,6 @@
 from functools import partial, cache
 from collections import namedtuple
+from typing import Callable
 
 import torch
 from torch.nn import Module
@@ -19,6 +20,7 @@ from vector_quantize_pytorch.utils import (
     noop,
     pack_one,
     unpack_one,
+    entropy
 )
 
 
