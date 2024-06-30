@@ -4,14 +4,18 @@ import pytest
 def exists(v):
     return v is not None
 
-def test_vq():
+@pytest.mark.parametrize('use_cosine_sim', (True, False))
+def test_vq(
+    use_cosine_sim
+):
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
         dim = 256,
-        codebook_size = 512,     # codebook size
-        decay = 0.8,             # the exponential moving average decay, lower means the dictionary will change faster
-        commitment_weight = 1.   # the weight on the commitment loss
+        codebook_size = 512,                # codebook size
+        decay = 0.8,                        # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight = 1.,             # the weight on the commitment loss
+        use_cosine_sim = use_cosine_sim
     )
 
     x = torch.randn(1, 1024, 256)
@@ -34,7 +38,6 @@ def test_vq_eval():
     assert torch.allclose(quantized, vq.get_output_from_indices(indices))
 
 def test_residual_vq():
-    import torch
     from vector_quantize_pytorch import ResidualVQ
 
     residual_vq = ResidualVQ(
@@ -49,7 +52,6 @@ def test_residual_vq():
     quantized, indices, commit_loss, all_codes = residual_vq(x, return_all_codes = True)
 
 def test_residual_vq2():
-    import torch
     from vector_quantize_pytorch import ResidualVQ
 
     residual_vq = ResidualVQ(
@@ -66,7 +68,6 @@ def test_residual_vq2():
 
 
 def test_grouped_residual_vq():
-    import torch
     from vector_quantize_pytorch import GroupedResidualVQ
 
     residual_vq = GroupedResidualVQ(
@@ -81,7 +82,6 @@ def test_grouped_residual_vq():
     quantized, indices, commit_loss = residual_vq(x)
 
 def test_residual_vq3():
-    import torch
     from vector_quantize_pytorch import ResidualVQ
 
     residual_vq = ResidualVQ(
@@ -96,7 +96,6 @@ def test_residual_vq3():
     quantized, indices, commit_loss = residual_vq(x)
 
 def test_vq_lower_codebook():
-    import torch
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
@@ -109,7 +108,6 @@ def test_vq_lower_codebook():
     quantized, indices, commit_loss = vq(x)
 
 def test_vq_cosine_sim():
-    import torch
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
@@ -122,7 +120,6 @@ def test_vq_cosine_sim():
     quantized, indices, commit_loss = vq(x)
 
 def test_vq_expire_code():
-    import torch
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
@@ -135,7 +132,6 @@ def test_vq_expire_code():
     quantized, indices, commit_loss = vq(x)
 
 def test_vq_multiheaded():
-    import torch
     from vector_quantize_pytorch import VectorQuantize
 
     vq = VectorQuantize(
@@ -151,7 +147,6 @@ def test_vq_multiheaded():
     quantized, indices, loss = vq(img_fmap)
 
 def test_rq():
-    import torch
     from vector_quantize_pytorch import RandomProjectionQuantizer
 
     quantizer = RandomProjectionQuantizer(
@@ -165,7 +160,6 @@ def test_rq():
     indices = quantizer(x)
 
 def test_fsq():
-    import torch
     from vector_quantize_pytorch import FSQ
 
     levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
@@ -177,7 +171,6 @@ def test_fsq():
     assert torch.all(xhat == quantizer.indices_to_codes(indices))
 
 def test_fsq_without_indices():
-    import torch
     from vector_quantize_pytorch import FSQ
 
     levels = [8,5,5,5] # see 4.1 and A.4.1 in the paper
@@ -189,7 +182,6 @@ def test_fsq_without_indices():
     assert not exists(indices)
 
 def test_rfsq():
-    import torch
     from vector_quantize_pytorch import ResidualFSQ
 
     residual_fsq = ResidualFSQ(
@@ -208,8 +200,12 @@ def test_rfsq():
 
     assert torch.all(quantized == quantized_out)
 
-def test_lfq():
-    import torch
+@pytest.mark.parametrize('spherical', (True, False))
+@pytest.mark.parametrize('codebook_scale', (1., 0.5))
+def test_lfq(
+    spherical,
+    codebook_scale
+):
     from vector_quantize_pytorch import LFQ
 
     # you can specify either dim or codebook_size
@@ -219,7 +215,9 @@ def test_lfq():
         codebook_size = 65536,      # codebook size, must be a power of 2
         dim = 16,                   # this is the input feature dimension, defaults to log2(codebook_size) if not defined
         entropy_loss_weight = 0.1,  # how much weight to place on entropy loss
-        diversity_gamma = 1.        # within entropy loss, how much weight to give to diversity of codes, taken from https://arxiv.org/abs/1911.05894
+        diversity_gamma = 1.,       # within entropy loss, how much weight to give to diversity of codes, taken from https://arxiv.org/abs/1911.05894
+        spherical = spherical,
+        codebook_scale = codebook_scale
     )
 
     image_feats = torch.randn(1, 16, 32, 32)
@@ -230,7 +228,6 @@ def test_lfq():
 
 
 def test_lfq_video():
-    import torch
     from vector_quantize_pytorch import LFQ
 
     quantizer = LFQ(
@@ -252,7 +249,6 @@ def test_lfq_video():
 
 
 def test_lfq2():
-    import torch
     from vector_quantize_pytorch import LFQ
 
     quantizer = LFQ(
@@ -269,7 +265,6 @@ def test_lfq2():
     assert (quantized == quantizer.indices_to_codes(indices)).all()
 
 def test_rflq():
-    import torch
     from vector_quantize_pytorch import ResidualLFQ
 
     residual_lfq = ResidualLFQ(
@@ -289,7 +284,6 @@ def test_rflq():
     assert torch.all(quantized == quantized_out)
 
 def test_latent_q():
-    import torch
     from vector_quantize_pytorch import LatentQuantize
 
     # you can specify either dim or codebook_size

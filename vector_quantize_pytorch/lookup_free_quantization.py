@@ -7,16 +7,27 @@ An entropy penalty is used to encourage utilization.
 """
 
 from math import log2, ceil
-from functools import partial
+from functools import partial, cache
 from collections import namedtuple
+import torch.distributed as dist
+from functools import partial
+from math import ceil, log2
 
 import torch
-from torch import nn, einsum
 import torch.nn.functional as F
-from torch.nn import Module
+from einops import rearrange, reduce, pack
+from torch import einsum, nn
 from torch.cuda.amp import autocast
+from torch.nn import Module
 
-from einops import rearrange, reduce, pack, unpack
+from vector_quantize_pytorch.utils import (
+    default,
+    entropy,
+    exists,
+    pack_one,
+    unpack_one,
+    identity
+)
 
 # constants
 
@@ -24,30 +35,23 @@ Return = namedtuple('Return', ['quantized', 'indices', 'entropy_aux_loss'])
 
 LossBreakdown = namedtuple('LossBreakdown', ['per_sample_entropy', 'batch_entropy', 'commitment'])
 
-# helper functions
+# distributed helpers
 
-def exists(v):
-    return v is not None
+@cache
+def is_distributed():
+    return dist.is_initialized() and dist.get_world_size() > 1
 
-def default(*args):
-    for arg in args:
-        if exists(arg):
-            return arg() if callable(arg) else arg
-    return None
+def maybe_distributed_mean(t):
+    if not is_distributed():
+        return t
 
-def pack_one(t, pattern):
-    return pack([t], pattern)
+    dist.all_reduce(t)
+    t = t / dist.get_world_size()
+    return t
 
-def unpack_one(t, ps, pattern):
-    return unpack(t, ps, pattern)[0]
+def l2norm(t):
+    return F.normalize(t, dim = -1)
 
-# entropy
-
-def log(t, eps = 1e-5):
-    return t.clamp(min = eps).log()
-
-def entropy(prob):
-    return (-prob * log(prob)).sum(dim=-1)
 
 # cosine sim linear
 
@@ -83,12 +87,15 @@ class LFQ(Module):
         keep_num_codebooks_dim = None,
         codebook_scale = 1.,                        # for residual LFQ, codebook scaled down by 2x at each layer
         frac_per_sample_entropy = 1.,               # make less than 1. to only use a random fraction of the probs for per sample entropy
-        use_code_agnostic_commit_loss = False,
+        has_projections = None,
         projection_has_bias = True,
         soft_clamp_input_value = None,
         cosine_sim_project_in = False,
         cosine_sim_project_in_scale = None,
-        channel_first = None
+        channel_first = None,
+        experimental_softplus_entropy_loss = False,
+        entropy_loss_offset = 5.,                   # how much to shift the loss before softplus
+        spherical = False                           # from https://arxiv.org/abs/2406.07548
     ):
         super().__init__()
 
@@ -97,14 +104,14 @@ class LFQ(Module):
         assert exists(dim) or exists(codebook_size), 'either dim or codebook_size must be specified for LFQ'
         assert not exists(codebook_size) or log2(codebook_size).is_integer(), f'your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})'
 
-        codebook_size = default(codebook_size, lambda: 2 ** dim)
+        codebook_size = default(codebook_size, 2 ** dim)
         self.codebook_size = codebook_size
 
         codebook_dim = int(log2(codebook_size))
         codebook_dims = codebook_dim * num_codebooks
         dim = default(dim, codebook_dims)
 
-        has_projections = dim != codebook_dims
+        has_projections = default(has_projections, dim != codebook_dims)
 
         if cosine_sim_project_in:
             cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
@@ -132,6 +139,11 @@ class LFQ(Module):
 
         self.activation = straight_through_activation
 
+        # whether to use BSQ (binary spherical quantization)
+
+        self.spherical = spherical
+        self.maybe_l2norm = (lambda t: l2norm(t) * self.codebook_scale) if spherical else identity
+
         # entropy aux loss related weights
 
         assert 0 < frac_per_sample_entropy <= 1.
@@ -147,12 +159,16 @@ class LFQ(Module):
         # commitment loss
 
         self.commitment_loss_weight = commitment_loss_weight
-        self.use_code_agnostic_commit_loss = use_code_agnostic_commit_loss
 
         # whether to soft clamp the input value from -value to value
 
         self.soft_clamp_input_value = soft_clamp_input_value
         assert not exists(soft_clamp_input_value) or soft_clamp_input_value >= codebook_scale
+
+        # whether to make the entropy loss positive through a softplus (experimental, please report if this worked or not in discussions)
+
+        self.entropy_loss_offset = entropy_loss_offset
+        self.experimental_softplus_entropy_loss = experimental_softplus_entropy_loss
 
         # for no auxiliary loss, during inference
 
@@ -190,6 +206,8 @@ class LFQ(Module):
         bits = ((indices[..., None].int() & self.mask) != 0).to(self.dtype)
 
         codes = self.bits_to_codes(bits)
+
+        codes = self.maybe_l2norm(codes)
 
         codes = rearrange(codes, '... c d -> ... (c d)')
 
@@ -247,12 +265,24 @@ class LFQ(Module):
 
         x = rearrange(x, 'b n (c d) -> b n c d', c = self.num_codebooks)
 
+        # maybe l2norm
+
+        x = self.maybe_l2norm(x)
+
         # quantize by eq 3.
 
         original_input = x
 
         codebook_value = torch.ones_like(x) * self.codebook_scale
         quantized = torch.where(x > 0, codebook_value, -codebook_value)
+
+        # calculate indices
+
+        indices = reduce((quantized > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
+
+        # maybe l2norm
+
+        quantized = self.maybe_l2norm(quantized)
 
         # use straight-through gradients (optionally with custom activation fn) if training
 
@@ -262,15 +292,15 @@ class LFQ(Module):
         else:
             x = quantized
 
-        # calculate indices
-
-        indices = reduce((x > 0).int() * self.mask.int(), 'b n c d -> b n c', 'sum')
-
         # entropy aux loss
 
         if self.training:
+            codebook = self.codebook
+
+            codebook = self.maybe_l2norm(codebook)
+
             # the same as euclidean distance up to a constant
-            distance = -2 * einsum('... i d, j d -> ... i j', original_input, self.codebook)
+            distance = -2 * einsum('... i d, j d -> ... i j', original_input, codebook)
 
             prob = (-distance * inv_temperature).softmax(dim = -1)
 
@@ -298,6 +328,9 @@ class LFQ(Module):
             # distribution over all available tokens in the batch
 
             avg_prob = reduce(per_sample_probs, '... c d -> c d', 'mean')
+
+            avg_prob = maybe_distributed_mean(avg_prob)
+
             codebook_entropy = entropy(avg_prob).mean()
 
             # 1. entropy will be nudged to be low for each code, to encourage the network to output confident predictions
@@ -308,21 +341,16 @@ class LFQ(Module):
             # if not training, just return dummy 0
             entropy_aux_loss = per_sample_entropy = codebook_entropy = self.zero
 
+        # whether to make the entropy loss positive or not through a (shifted) softplus
+
+        if self.training and self.experimental_softplus_entropy_loss:
+            entropy_aux_loss = F.softplus(entropy_aux_loss + self.entropy_loss_offset)
+
         # commit loss
 
         if self.training and self.commitment_loss_weight > 0.:
 
-            if self.use_code_agnostic_commit_loss:
-                # credit goes to @MattMcPartlon for sharing this in https://github.com/lucidrains/vector-quantize-pytorch/issues/120#issuecomment-2095089337
-
-                commit_loss = F.mse_loss(
-                    original_input ** 2,
-                    codebook_value ** 2,
-                    reduction = 'none'
-                )
-
-            else:
-                commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
+            commit_loss = F.mse_loss(original_input, quantized.detach(), reduction = 'none')
 
             if exists(mask):
                 commit_loss = commit_loss[mask]

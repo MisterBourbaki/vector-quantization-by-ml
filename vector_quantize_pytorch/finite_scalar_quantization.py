@@ -6,12 +6,20 @@ Code adapted from Jax version in Appendix A.1.
 
 from __future__ import annotations
 
+from typing import List, Tuple
+
 import torch
+import torch.nn as nn
+from einops import rearrange
+from torch import Tensor, int32
 from einops import pack, rearrange, unpack
 from torch import Tensor, int32, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
+from vector_quantize_pytorch.utils import default, exists, pack_one, unpack_one
+
+# tensor helpers
 
 def round_ste(features: Tensor) -> Tensor:
     """Round with straight through gradients."""
@@ -232,6 +240,7 @@ class FSQ(Module):
 
         codes = self.quantize(features)
         indices = None
+
         if self.return_indices:
             indices = self.codes_to_indices(codes)
 

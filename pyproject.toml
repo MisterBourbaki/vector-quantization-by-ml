@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.14.28"
+version = "1.14.43"
 description = "Vector Quantization - Pytorch"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" }
@@ -33,7 +33,12 @@ Homepage = "https://pypi.org/project/vector-quantize-pytorch/"
 Repository = "https://github.com/lucidrains/vector-quantizer-pytorch"
 
 [project.optional-dependencies]
-examples = ["tqdm", "torchvision"]
+examples = [
+    "lightning",
+    "torchvision",
+    "tensorboard",
+    "rich>=13.7.1",
+]
 
 [build-system]
 requires = ["hatchling"]
