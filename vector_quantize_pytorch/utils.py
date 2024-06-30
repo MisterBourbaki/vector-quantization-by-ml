@@ -34,5 +34,6 @@ def entropy(prob):
 def round_up_multiple(num, mult):
     return ceil(num / mult) * mult
 
+
 def identity(t):
     return t
