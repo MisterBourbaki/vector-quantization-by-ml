@@ -315,7 +315,7 @@ assert indices is None
 
 Note that already the codebook associated to the Finite Scalar quantizer is not a parameter of the module itself.
 
-An improvised Residual FSQ, for an attempt to improve audio encoding. 
+An improvised Residual FSQ, for an attempt to improve audio encoding.
 
 Credit goes to [@sekstini](https://github.com/sekstini) for originally incepting the idea [here](https://github.com/lucidrains/vector-quantize-pytorch/pull/74#issuecomment-1742048597)
 
@@ -468,7 +468,7 @@ from vector_quantize_pytorch import LatentQuantize
 quantizer = LatentQuantize(
     levels = [5, 5, 8],      # number of levels per codebook dimension
     dim = 16,                   # input dim
-    commitment_loss_weight=0.1,  
+    commitment_loss_weight=0.1,
     quantization_loss_weight=0.1,
 )
 
@@ -492,7 +492,7 @@ from vector_quantize_pytorch import LatentQuantize
 quantizer = LatentQuantize(
     levels = [5, 5, 8],
     dim = 16,
-    commitment_loss_weight=0.1,  
+    commitment_loss_weight=0.1,
     quantization_loss_weight=0.1,
 )
 
@@ -692,7 +692,7 @@ assert loss.item() >= 0
 
 ```bibtex
 @misc{hsu2023disentanglement,
-    title   = {Disentanglement via Latent Quantization}, 
+    title   = {Disentanglement via Latent Quantization},
     author  = {Kyle Hsu and Will Dorrell and James C. R. Whittington and Jiajun Wu and Chelsea Finn},
     year    = {2023},
     eprint  = {2305.18378},

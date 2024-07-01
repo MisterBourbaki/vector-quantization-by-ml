@@ -5,10 +5,11 @@ which holds a basic implementations of a VQ VAE model using the VectorQuantize
 module of the project.
 Implementation inspired by https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
-At the end of the module you can find a short script using the Trainer of Lightning to 
-train the model for 10 epochs, using the FashionMNIST dataset as defined in 
+At the end of the module you can find a short script using the Trainer of Lightning to
+train the model for 10 epochs, using the FashionMNIST dataset as defined in
 the module data.py
 """
+
 import torch
 from lightning import LightningModule, Trainer, seed_everything
 from lightning.pytorch.callbacks import RichModelSummary, RichProgressBar
@@ -24,6 +25,7 @@ seed_everything(1234, workers=True)
 
 class SimpleVQAutoEncoder(LightningModule):
     """A simple VQ AutoEncoder using the classical VQ."""
+
     def __init__(
         self,
         dim: int = 32,
