@@ -97,14 +97,14 @@ def gumbel_sample(
     # algorithm 2
 
     if reinmax:
-        π0 = logits.softmax(dim=dim)
-        π1 = (one_hot + (logits / temperature).softmax(dim=dim)) / 2
-        π1 = ((log(π1) - logits).detach() + logits).softmax(dim=1)
-        π2 = 2 * π1 - 0.5 * π0
-        one_hot = π2 - π2.detach() + one_hot
+        prob0 = logits.softmax(dim=dim)
+        prob1 = (one_hot + (logits / temperature).softmax(dim=dim)) / 2
+        prob1 = ((log(prob1) - logits).detach() + logits).softmax(dim=1)
+        prob2 = 2 * prob1 - 0.5 * prob0
+        one_hot = prob2 - prob2.detach() + one_hot
     else:
-        π1 = (logits / temperature).softmax(dim=dim)
-        one_hot = one_hot + π1 - π1.detach()
+        prob1 = (logits / temperature).softmax(dim=dim)
+        one_hot = one_hot + prob1 - prob1.detach()
 
     return ind, one_hot
 
@@ -212,11 +212,10 @@ def kmeans(
     sample_fn=batched_sample_vectors,
     all_reduce_fn=noop,
 ):
-    num_codebooks, dim, dtype, device = (
+    num_codebooks, dim, dtype = (
         samples.shape[0],
         samples.shape[-1],
         samples.dtype,
-        samples.device,
     )
 
     means = sample_fn(samples, num_clusters)
@@ -529,7 +528,7 @@ class EuclideanCodebook(Module):
         if needs_codebook_dim:
             x = rearrange(x, "... -> 1 ...")
 
-        dtype = x.dtype
+        # dtype = x.dtype
         flatten, ps = pack_one(x, "h * d")
 
         if exists(mask):
@@ -740,7 +739,7 @@ class CosineSimCodebook(Module):
         if needs_codebook_dim:
             x = rearrange(x, "... -> 1 ...")
 
-        dtype = x.dtype
+        # dtype = x.dtype
 
         flatten, ps = pack_one(x, "h * d")
 
@@ -846,14 +845,14 @@ class VectorQuantize(Module):
         sample_codebook_temp=1.0,
         straight_through=False,
         distributed_replace_codes=True,
-        reinmax=False,  # using reinmax for improved straight-through, assuming straight through helps at all
+        reinmax=False,  # using reinmax for improved straight-through
         sync_codebook=None,
         sync_affine_param=False,
         ema_update=True,
         learnable_codebook=False,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
-        ] = None,  # Optimizer used to update the codebook embedding if using learnable_codebook
+        ] = None,  # Optimizer used if using learnable_codebook
         affine_param=False,
         affine_param_batch_decay=0.99,
         affine_param_codebook_decay=0.9,
@@ -1032,12 +1031,11 @@ class VectorQuantize(Module):
             assert not exists(mask)
             x = rearrange(x, "b d -> b 1 d")
 
-        shape, device, heads, is_multiheaded, codebook_size, return_loss = (
+        shape, device, heads, is_multiheaded, return_loss = (
             x.shape,
             x.device,
             self.heads,
             self.heads > 1,
-            self.codebook_size,
             exists(indices),
         )
 

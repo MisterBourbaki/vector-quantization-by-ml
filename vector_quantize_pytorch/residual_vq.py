@@ -3,7 +3,6 @@ from __future__ import annotations
 import random
 from functools import cache, partial
 from itertools import zip_longest
-from typing import List
 
 import torch
 import torch.distributed as dist
@@ -99,7 +98,7 @@ class ResidualVQ(Module):
         return codebooks
 
     def get_codes_from_indices(self, indices):
-        batch, quantize_dim = indices.shape[0], indices.shape[-1]
+        _, quantize_dim = indices.shape[0], indices.shape[-1]
 
         # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
 
@@ -142,7 +141,7 @@ class ResidualVQ(Module):
         self,
         x,
         mask=None,
-        indices: Tensor | List[Tensor] | None = None,
+        indices: Tensor | list[Tensor] | None = None,
         return_all_codes=False,
         sample_codebook_temp=None,
         freeze_codebook=False,

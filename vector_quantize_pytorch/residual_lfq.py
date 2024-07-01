@@ -78,7 +78,7 @@ class ResidualLFQ(Module):
         return codebooks
 
     def get_codes_from_indices(self, indices):
-        batch, quantize_dim = indices.shape[0], indices.shape[-1]
+        _, quantize_dim = indices.shape[0], indices.shape[-1]
 
         # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
 

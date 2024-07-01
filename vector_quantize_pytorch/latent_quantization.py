@@ -6,7 +6,7 @@ Code adapted from Jax version in https://github.com/kylehkhsu/latent_quantizatio
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
@@ -21,7 +21,7 @@ from vector_quantize_pytorch.utils import pack_one, unpack_one
 class LatentQuantize(Module):
     def __init__(
         self,
-        levels: List[int] | int,
+        levels: list[int] | int,
         dim: int,
         commitment_loss_weight: float | None = 0.1,
         quantization_loss_weight: float | None = 0.1,

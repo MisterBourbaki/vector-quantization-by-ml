@@ -1,5 +1,4 @@
 import random
-from typing import List
 
 import torch
 import torch.nn.functional as F
@@ -13,8 +12,8 @@ from vector_quantize_pytorch.finite_scalar_quantization import FSQ
 from vector_quantize_pytorch.utils import exists, round_up_multiple
 
 
-def first(l):
-    return l[0]
+def first(list_):
+    return list_[0]
 
 
 # main class
@@ -27,7 +26,7 @@ class ResidualFSQ(Module):
         self,
         *,
         dim,
-        levels: List[int],
+        levels: list[int],
         num_quantizers,
         quantize_dropout=False,
         quantize_dropout_cutoff_index=0,
@@ -82,7 +81,7 @@ class ResidualFSQ(Module):
         return codebooks
 
     def get_codes_from_indices(self, indices):
-        batch, quantize_dim = indices.shape[0], indices.shape[-1]
+        _, quantize_dim = indices.shape[0], indices.shape[-1]
 
         # may also receive indices in the shape of 'b h w q' (accept_image_fmap)
 
