@@ -25,7 +25,7 @@ jobs:
         run: rye config --set-bool behavior.use-uv=true
       - name: Install dependencies
         run: |
-          rye sync --no-lock
+          rye sync --all-features
       - name: Run the lint
         run: rye run ruff check pybiscus/
       - name: Run the format
