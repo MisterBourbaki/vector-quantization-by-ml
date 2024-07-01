@@ -8,6 +8,7 @@ from torchvision.transforms import v2
 
 class LitFashionMNIST(LightningDataModule):
     """A basic implem of a LightningDataModule wrapping the FashionMNIST dataset."""
+
     def __init__(self, data_dir: str = ".", batch_size: int = 256):
         super().__init__()
         self.data_dir = data_dir

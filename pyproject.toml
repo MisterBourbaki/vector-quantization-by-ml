@@ -1,9 +1,13 @@
 [project]
 name = "vector-quantize-pytorch"
 version = "1.14.43"
-description = "Vector Quantization - Pytorch"
+description = "Fork of the Vector Quantization - Pytorch Project"
 authors = [
-    { name = "Phil Wang", email = "lucidrains@gmail.com" }
+    { name = "Phil Wang", email = "lucidrains@gmail.com" },
+    { name = "Baptiste Morisse", email = "bmorisse.pro@proton.me"}
+]
+maintainers = [
+  { name = "Baptiste Morisse", email = "bmorisse.pro@proton.me"}
 ]
 readme = "README.md"
 requires-python = ">= 3.9"
@@ -50,6 +54,7 @@ dev-dependencies = [
     "ruff>=0.4.2",
     "pytest>=8.2.0",
     "pytest-cov>=5.0.0",
+    "pre-commit>=3.7.1",
 ]
 
 [tool.pytest.ini_options]

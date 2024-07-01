@@ -4,8 +4,8 @@ This module contains the LightningModule subclass LFQAutoEncoder,
 which holds a basic implementations of a VQ VAE model using the LFQ module of the project.
 Implementation inspired by https://github.com/minyoungg/vqtorch/blob/main/examples/autoencoder.py
 
-At the end of the module you can find a short script using the Trainer of Lightning to 
-train the model for 10 epochs, using the FashionMNIST dataset as defined in 
+At the end of the module you can find a short script using the Trainer of Lightning to
+train the model for 10 epochs, using the FashionMNIST dataset as defined in
 the module data.py
 """
 

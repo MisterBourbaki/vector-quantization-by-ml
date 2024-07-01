@@ -6,7 +6,7 @@ Code adapted from Jax version in https://github.com/kylehkhsu/latent_quantizatio
 
 from __future__ import annotations
 
-from typing import Callable, List
+from typing import Callable
 
 import torch
 import torch.nn.functional as F
@@ -21,7 +21,7 @@ from vector_quantize_pytorch.utils import pack_one, unpack_one
 class LatentQuantize(Module):
     def __init__(
         self,
-        levels: List[int] | int,
+        levels: list[int] | int,
         dim: int,
         commitment_loss_weight: float | None = 0.1,
         quantization_loss_weight: float | None = 0.1,
@@ -45,7 +45,7 @@ class LatentQuantize(Module):
                 (default is 1)
             codebook_dim (int): the dimension of the codebook.
                 If levels is a list, codebook_dim is the length of the list.
-                (default to -1) 
+                (default to -1)
             keep_num_codebooks_dim (Optional[bool]): Whether to keep the number of codebooks dimension in the output tensor. If not provided, it is set to True if num_codebooks > 1, otherwise False.
             optimize_values (Optional[bool]): Whether to optimize the values of the codebook. If not provided, it is set to True.
         """

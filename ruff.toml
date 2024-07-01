@@ -11,9 +11,9 @@ extend-select = [
   "E",
   "F",
   "I",
-  "PL",
+  # "PL",
 ]
-ignore = ["PLR0913"]
+ignore = ["E501"]
 
 [lint.pydocstyle]
 convention = "numpy"
@@ -21,4 +21,3 @@ convention = "numpy"
 [format]
 docstring-code-format = true
 docstring-code-line-length = 20
-
