@@ -27,6 +27,6 @@ jobs:
         run: |
           rye sync --all-features
       - name: Run the lint
-        run: rye run ruff check pybiscus/
+        run: rye run ruff check .
       - name: Run the format
-        run: rye run ruff format pybiscus/
+        run: rye run ruff format .
