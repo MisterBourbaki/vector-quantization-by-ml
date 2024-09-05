@@ -1,4 +1,4 @@
-name: Build with Rye
+name: Build with uv
 on: push
 
 jobs:
