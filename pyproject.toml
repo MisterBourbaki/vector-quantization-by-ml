@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.14.43"
+version = "1.15.0"
 description = "Fork of the Vector Quantization - Pytorch Project"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" },
@@ -55,6 +55,8 @@ dev-dependencies = [
     "pytest>=8.2.0",
     "pytest-cov>=5.0.0",
     "pre-commit>=3.7.1",
+    "ipython>=8.18.1",
+    "marimo>=0.7.1",
 ]
 
 [tool.pytest.ini_options]
