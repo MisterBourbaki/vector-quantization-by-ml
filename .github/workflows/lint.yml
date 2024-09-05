@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,7 +19,9 @@ jobs:
         with:
           version: 0.4.5
           enable-cache: true
+      - name: Install the project
+        run: uv sync -p ${{ matrix.python-version }} --all-extras --dev
       - name: Run the lint
-        run: uv run -p ${{ matrix.python-version }} --frozen ruff check .
+        run: uv run ruff check .
       - name: Run the format
-        run: uv run -p ${{ matrix.python-version }} --frozen ruff format .
+        run: uv run ruff format .
