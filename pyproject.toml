@@ -48,7 +48,7 @@ examples = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.rye]
+[tool.uv]
 managed = true
 dev-dependencies = [
     "ruff>=0.4.2",

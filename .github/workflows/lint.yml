@@ -10,23 +10,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11"]
-        # poetry-version: ["1.8.2"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install Python
-        uses: actions/setup-python@v4
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v1
         with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install the latest version of rye
-        uses: eifinger/setup-rye@v2
-      - name: Use UV instead of pip
-        run: rye config --set-bool behavior.use-uv=true
-      - name: Install dependencies
-        run: |
-          rye sync --all-features
+          version: 0.4.5
+          enable-cache: true
       - name: Run the lint
-        run: rye run ruff check .
+        run: uv run -p ${{ matrix.python-version }} --frozen ruff check .
       - name: Run the format
-        run: rye run ruff format .
+        run: uv run -p ${{ matrix.python-version }} --frozen ruff format .
