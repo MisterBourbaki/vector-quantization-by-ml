@@ -12,7 +12,7 @@ from einx import get_at
 from torch import Tensor, nn
 from torch.nn import Module, ModuleList
 
-from vector_quantize_pytorch.utils import default, exists, round_up_multiple
+from vector_quantize_pytorch.utils.general import default, exists, round_up_multiple
 from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 
 # distributed helpers
