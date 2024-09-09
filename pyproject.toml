@@ -57,6 +57,8 @@ dev-dependencies = [
     "pre-commit>=3.7.1",
     "ipython>=8.18.1",
     "marimo>=0.7.1",
+    "wily>=1.25.0",
+    "rope>=1.13.0",
 ]
 
 [tool.pytest.ini_options]
