@@ -15,7 +15,7 @@ from torch import Tensor, int32, nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.utils import pack_one, unpack_one
+from vector_quantize_pytorch.utils.general import pack_one, unpack_one
 
 
 class LatentQuantize(Module):

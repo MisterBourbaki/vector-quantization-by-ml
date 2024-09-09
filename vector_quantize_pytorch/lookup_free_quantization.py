@@ -18,7 +18,7 @@ from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.utils import (
+from vector_quantize_pytorch.utils.general import (
     default,
     entropy,
     exists,

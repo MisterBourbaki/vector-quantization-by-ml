@@ -4,9 +4,12 @@ from vector_quantize_pytorch import VectorQuantize
 
 
 class TestVectorQuantizer:
+    dim = 4
+    codebook_size = 2**5
+
     quantizer = VectorQuantize(
-        dim=4,
-        codebook_size=2**5,  # codebook size
+        dim=dim,
+        codebook_size=codebook_size,  # codebook size
         decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
         commitment_weight=1.0,  # the weight on the commitment loss
     )
@@ -15,19 +18,74 @@ class TestVectorQuantizer:
         assert self.quantizer
 
     def test_forward(self, vectors_channel_last):
-        # features = torch.randn(1, 1024, 4)  # 4 since there are 4 levels
-        x = torch.randn(1, 1024, 4)
-        quantized, indices, _ = self.quantizer(x)
+        # vectors = vectors_channel_last
+        series = torch.randn(1, 100, self.dim)
+        # images = torch.randn(1, self.dim, 8, 8)
+        vectors = [series]
 
-        assert x.shape == quantized.shape
-        assert indices.shape == (1, 1024)
+        for features in vectors:
+            quantized, indices, _ = self.quantizer(features)
 
-        # for features in vectors_channel_last:
-        #     quantized, indices, _ = self.quantizer(features)
+            assert quantized.shape == features.shape
+            # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
+            assert indices.shape == features.shape[:-1]
 
-        #     assert quantized.shape == features.shape
-        #     # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
-        #     assert indices.shape == features.shape[:-1]
+
+class TestVectorQuantizerImage:
+    dim = 4
+    codebook_size = 2**5
+
+    quantizer = VectorQuantize(
+        dim=dim,
+        codebook_size=codebook_size,  # codebook size
+        decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight=1.0,  # the weight on the commitment loss
+        accept_image_fmap=True,
+    )
+
+    def test_init(self):
+        assert self.quantizer
+
+    def test_forward(self, vectors_channel_last):
+        # vectors = vectors_channel_last
+        images = torch.randn(1, self.dim, 8, 8)
+        # video = torch.randn(1, self.dim, 10, 8, 8)
+        vectors = [images]
+
+        for features in vectors:
+            quantized, indices, _ = self.quantizer(features)
+
+            assert quantized.shape == features.shape
+            # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
+            assert indices.shape == features.shape[0:1] + features.shape[2:]
+
+
+class TestVectorQuantizerChannelFirst:
+    dim = 4
+    codebook_size = 2**5
+
+    quantizer = VectorQuantize(
+        dim=dim,
+        codebook_size=codebook_size,  # codebook size
+        decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
+        commitment_weight=1.0,  # the weight on the commitment loss
+        channel_last=False,
+    )
+
+    def test_init(self):
+        assert self.quantizer
+
+    def test_forward(self, vectors_channel_last):
+        # vectors = vectors_channel_last
+        series = torch.randn(1, self.dim, 100)
+        vectors = [series]
+
+        for features in vectors:
+            quantized, indices, _ = self.quantizer(features)
+
+            assert quantized.shape == features.shape
+            # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
+            assert indices.shape == features.shape[0:1] + features.shape[2:]
 
 
 class TestVectorQuantizerCosine:
