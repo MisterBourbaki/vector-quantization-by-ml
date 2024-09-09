@@ -14,7 +14,6 @@ from vector_quantize_pytorch.utils.distributed import (
     is_distributed,
 )
 from vector_quantize_pytorch.utils.general import (
-    default,
     entropy,
     exists,
     gumbel_sample,
@@ -85,7 +84,8 @@ class VectorQuantize(Module):
         self.heads = heads
         self.separate_codebook_per_head = separate_codebook_per_head
 
-        codebook_dim = default(codebook_dim, dim)
+        # codebook_dim = default(codebook_dim, dim)
+        codebook_dim = codebook_dim if codebook_dim is not None else dim
         codebook_input_dim = codebook_dim * heads
 
         requires_projection = codebook_input_dim != dim
