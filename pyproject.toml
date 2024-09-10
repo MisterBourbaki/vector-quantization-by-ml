@@ -1,6 +1,6 @@
 [project]
 name = "vector-quantize-pytorch"
-version = "1.15.0"
+version = "1.16.0"
 description = "Fork of the Vector Quantization - Pytorch Project"
 authors = [
     { name = "Phil Wang", email = "lucidrains@gmail.com" },

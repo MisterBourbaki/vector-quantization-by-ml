@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [Version 1.16.0]
 
 * [BUG FIXED] In lookup_freee_quantization: fix the bug of 'should_transpose', badly defined. The forward method should transpose regardless of 'is or is not image', just regarding the 'channel_first' attribute. If 'is_image_or_video', the input tensor should be packed (regardless of channel first or not.)
 * [BUG FIXED] the VQ API could not handle video, and was not the same as the other ones. The definition of 'need_transpose' was not appropriate, as it depended in an hidden way on whether the input tensors was or not an image. The code now looks more stable, as it handles many more situation: image or not, channel last or not, multi headed or not.
