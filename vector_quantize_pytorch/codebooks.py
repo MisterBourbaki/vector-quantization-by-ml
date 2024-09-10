@@ -2,7 +2,7 @@ from functools import partial
 
 import torch
 from einops import rearrange, reduce, repeat
-from torch import distributed, einsum, nn
+from torch import cdist, distributed, einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
@@ -24,7 +24,7 @@ from vector_quantize_pytorch.utils.general import (
     unpack_one,
 )
 from vector_quantize_pytorch.utils.kmeans import kmeans
-from vector_quantize_pytorch.utils.losses import cdist, l2norm
+from vector_quantize_pytorch.utils.losses import l2norm
 
 
 class EuclideanCodebook(Module):
@@ -139,8 +139,8 @@ class EuclideanCodebook(Module):
 
         embed, cluster_size = kmeans(
             data,
-            self.codebook_size,
-            self.kmeans_iters,
+            num_clusters=self.codebook_size,
+            num_iters=self.kmeans_iters,
             sample_fn=self.sample_fn,
             all_reduce_fn=self.kmeans_all_reduce_fn,
         )

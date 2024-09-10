@@ -1,8 +1,10 @@
 import torch
 from einops import rearrange, repeat
+from torch import Tensor, cdist
+from torch.nn import CosineSimilarity, Identity
 
 from vector_quantize_pytorch.utils.general import batched_sample_vectors, noop
-from vector_quantize_pytorch.utils.losses import cdist, l2norm
+from vector_quantize_pytorch.utils.losses import l2norm
 
 
 def batched_bincount(x, *, minlength):
@@ -14,9 +16,9 @@ def batched_bincount(x, *, minlength):
 
 
 def kmeans(
-    samples,
-    num_clusters,
-    num_iters=10,
+    samples: Tensor,
+    num_clusters: int,
+    num_iters: int = 10,
     use_cosine_sim=False,
     sample_fn=batched_sample_vectors,
     all_reduce_fn=noop,
@@ -28,14 +30,20 @@ def kmeans(
     )
 
     means = sample_fn(samples, num_clusters)
+    if use_cosine_sim:
+        dist_fn = CosineSimilarity(dim=-1)
+        reg_fn = l2norm
+    else:
+
+        def dist_fn(x, y):
+            return -cdist(x, y)
+
+        reg_fn = Identity()
 
     for _ in range(num_iters):
-        if use_cosine_sim:
-            dists = samples @ rearrange(means, "h n d -> h d n")
-        else:
-            dists = -cdist(samples, means)
+        distances = dist_fn(samples, means)
 
-        buckets = torch.argmax(dists, dim=-1)
+        buckets = torch.argmax(distances, dim=-1)
         bins = batched_bincount(buckets, minlength=num_clusters)
         all_reduce_fn(bins)
 
@@ -48,8 +56,9 @@ def kmeans(
         new_means = new_means / rearrange(bins_min_clamped, "... -> ... 1")
         all_reduce_fn(new_means)
 
-        if use_cosine_sim:
-            new_means = l2norm(new_means)
+        # if use_cosine_sim:
+        #     new_means = l2norm(new_means)
+        new_means = reg_fn(new_means)
 
         means = torch.where(rearrange(zero_mask, "... -> ... 1"), means, new_means)
 
