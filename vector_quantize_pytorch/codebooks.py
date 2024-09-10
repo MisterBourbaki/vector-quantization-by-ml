@@ -13,7 +13,6 @@ from vector_quantize_pytorch.utils.distributed import (
 from vector_quantize_pytorch.utils.general import (
     batched_embedding,
     batched_sample_vectors,
-    default,
     ema_inplace,
     exists,
     gumbel_sample,
@@ -67,7 +66,12 @@ class EuclideanCodebook(Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
-        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+        # self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+        self.reset_cluster_size = (
+            reset_cluster_size
+            if reset_cluster_size is not None
+            else threshold_ema_dead_code
+        )
 
         assert callable(gumbel_sample)
         self.gumbel_sample = gumbel_sample
@@ -129,7 +133,7 @@ class EuclideanCodebook(Module):
         if self.initted:
             return
 
-        if exists(mask):
+        if mask is not None:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -191,7 +195,7 @@ class EuclideanCodebook(Module):
 
         data = rearrange(data, "h ... d -> h (...) d")
 
-        if exists(mask):
+        if mask is not None:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -264,8 +268,12 @@ class EuclideanCodebook(Module):
     @autocast(enabled=False)
     def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
-
+        # sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
+        sample_codebook_temp = (
+            sample_codebook_temp
+            if sample_codebook_temp is not None
+            else self.sample_codebook_temp
+        )
         x = x.float()
 
         if needs_codebook_dim:
@@ -274,7 +282,7 @@ class EuclideanCodebook(Module):
         # dtype = x.dtype
         flatten, ps = pack_one(x, "h * d")
 
-        if exists(mask):
+        if mask is not None:
             mask = repeat(
                 mask,
                 "b n -> c (b h n)",
@@ -316,7 +324,7 @@ class EuclideanCodebook(Module):
                     codebook_std / batch_std
                 ) + self.codebook_mean
 
-            if exists(mask):
+            if mask is not None:
                 embed_onehot[~mask] = 0.0
 
             cluster_size = embed_onehot.sum(dim=1)
@@ -385,7 +393,12 @@ class CosineSimCodebook(Module):
         self.kmeans_iters = kmeans_iters
         self.eps = eps
         self.threshold_ema_dead_code = threshold_ema_dead_code
-        self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+        # self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
+        self.reset_cluster_size = (
+            reset_cluster_size
+            if reset_cluster_size is not None
+            else threshold_ema_dead_code
+        )
 
         assert callable(gumbel_sample)
         self.gumbel_sample = gumbel_sample
@@ -424,7 +437,7 @@ class CosineSimCodebook(Module):
         if self.initted:
             return
 
-        if exists(mask):
+        if mask is not None:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
@@ -475,7 +488,12 @@ class CosineSimCodebook(Module):
     @autocast(enabled=False)
     def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
+        # sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
+        sample_codebook_temp = (
+            sample_codebook_temp
+            if sample_codebook_temp is not None
+            else self.sample_codebook_temp
+        )
 
         x = x.float()
 
@@ -486,7 +504,7 @@ class CosineSimCodebook(Module):
 
         flatten, ps = pack_one(x, "h * d")
 
-        if exists(mask):
+        if mask is not None:
             mask = repeat(
                 mask,
                 "b n -> c (b h n)",
@@ -512,7 +530,7 @@ class CosineSimCodebook(Module):
             quantize = batched_embedding(embed_ind, embed)
 
         if self.training and self.ema_update and not freeze_codebook:
-            if exists(mask):
+            if mask is not None:
                 embed_onehot[~mask] = 0.0
 
             bins = embed_onehot.sum(dim=1)

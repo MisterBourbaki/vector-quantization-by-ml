@@ -18,10 +18,7 @@ class TestVectorQuantizer:
         assert self.quantizer
 
     def test_forward(self, vectors_channel_last):
-        # vectors = vectors_channel_last
-        series = torch.randn(1, 100, self.dim)
-        # images = torch.randn(1, self.dim, 8, 8)
-        vectors = [series]
+        vectors = vectors_channel_last
 
         for features in vectors:
             quantized, indices, _ = self.quantizer(features)
@@ -29,35 +26,6 @@ class TestVectorQuantizer:
             assert quantized.shape == features.shape
             # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
             assert indices.shape == features.shape[:-1]
-
-
-class TestVectorQuantizerImage:
-    dim = 4
-    codebook_size = 2**5
-
-    quantizer = VectorQuantize(
-        dim=dim,
-        codebook_size=codebook_size,  # codebook size
-        decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
-        commitment_weight=1.0,  # the weight on the commitment loss
-        accept_image_fmap=True,
-    )
-
-    def test_init(self):
-        assert self.quantizer
-
-    def test_forward(self, vectors_channel_last):
-        # vectors = vectors_channel_last
-        images = torch.randn(1, self.dim, 8, 8)
-        # video = torch.randn(1, self.dim, 10, 8, 8)
-        vectors = [images]
-
-        for features in vectors:
-            quantized, indices, _ = self.quantizer(features)
-
-            assert quantized.shape == features.shape
-            # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
-            assert indices.shape == features.shape[0:1] + features.shape[2:]
 
 
 class TestVectorQuantizerChannelFirst:
@@ -75,10 +43,8 @@ class TestVectorQuantizerChannelFirst:
     def test_init(self):
         assert self.quantizer
 
-    def test_forward(self, vectors_channel_last):
-        # vectors = vectors_channel_last
-        series = torch.randn(1, self.dim, 100)
-        vectors = [series]
+    def test_forward(self, vectors_channel_first):
+        vectors = vectors_channel_first
 
         for features in vectors:
             quantized, indices, _ = self.quantizer(features)
@@ -109,24 +75,42 @@ class TestVectorQuantizerCosine:
 
 
 class TestVectorQuantizerMultihead:
+    codebook_dim = 32
+    heads = 2
+    dim = codebook_dim * heads
     quantizer = VectorQuantize(
-        dim=4,
-        codebook_dim=32,  # a number of papers have shown smaller codebook dimension to be acceptable
-        heads=8,  # number of heads to vector quantize, codebook shared across all heads
+        dim=dim,
+        codebook_dim=codebook_dim,  # a number of papers have shown smaller codebook dimension to be acceptable
+        heads=heads,  # number of heads to vector quantize, codebook shared across all heads
         separate_codebook_per_head=True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
-        codebook_size=8196,
-        accept_image_fmap=True,
+        codebook_size=2**5,
+        # accept_image_fmap=True,
     )
 
     def test_init(self):
         assert self.quantizer
 
-    def test_forward(self):
-        img_fmap = torch.randn(1, 4, 32, 32)
-        quantized, indices, _ = self.quantizer(img_fmap)
+    def test_forward(self, vectors_channel_last):
+        images = torch.randn(1, 8, 8, self.dim)
+        series = torch.randn(1, 100, self.dim)
+        video = torch.randn(1, 5, 8, 8, self.dim)
+        vectors = [images, series, video]
 
-        assert img_fmap.shape == quantized.shape
-        assert indices.shape == (1, 32, 32, 8)
+        for features in vectors:
+            quantized, indices, _ = self.quantizer(features)
+
+            assert features.shape == quantized.shape
+            assert indices.shape == features.shape[:-1] + (self.heads,)
+
+    # def test_forward(self, vectors_channel_last):
+    #     vectors = vectors_channel_last(self.dim)
+
+    #     for features in vectors:
+    #         quantized, indices, _ = self.quantizer(features)
+
+    #         assert quantized.shape == features.shape
+    #         # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
+    #         assert indices.shape == features.shape[:-1] + (self.heads,)
 
 
 class TestVectorQuantizerLowerCode:

@@ -13,17 +13,15 @@ from math import ceil, log2
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from einops import rearrange, reduce
+from einops import pack, rearrange, reduce
 from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
 from vector_quantize_pytorch.utils.general import (
-    default,
     entropy,
     exists,
     identity,
-    pack_one,
     unpack_one,
 )
 
@@ -93,7 +91,7 @@ class LFQ(Module):
         soft_clamp_input_value=None,
         cosine_sim_project_in=False,
         cosine_sim_project_in_scale=None,
-        channel_first=None,
+        channel_first=False,
         experimental_softplus_entropy_loss=False,
         entropy_loss_offset=5.0,  # how much to shift the loss before softplus
         spherical=False,  # from https://arxiv.org/abs/2406.07548
@@ -109,17 +107,27 @@ class LFQ(Module):
             not exists(codebook_size) or log2(codebook_size).is_integer()
         ), f"your codebook size must be a power of 2 for lookup free quantization (suggested {2 ** ceil(log2(codebook_size))})"
 
-        codebook_size = default(codebook_size, 2**dim)
+        codebook_size = codebook_size if codebook_size is not None else 2**dim
+
         self.codebook_size = codebook_size
 
         codebook_dim = int(log2(codebook_size))
         codebook_dims = codebook_dim * num_codebooks
-        dim = default(dim, codebook_dims)
+        # dim = default(dim, codebook_dims)
+        dim = dim if dim is not None else codebook_dims
 
-        has_projections = default(has_projections, dim != codebook_dims)
+        # has_projections = default(has_projections, dim != codebook_dims)
+        has_projections = (
+            has_projections if has_projections is not None else (dim != codebook_dims)
+        )
 
         if cosine_sim_project_in:
-            cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
+            # cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
+            cosine_sim_project_in = (
+                cosine_sim_project_in
+                if cosine_sim_project_in is not None
+                else codebook_scale
+            )
             project_in_klass = partial(CosineSimLinear, scale=cosine_sim_project_in)
         else:
             project_in_klass = partial(nn.Linear, bias=projection_has_bias)
@@ -138,7 +146,12 @@ class LFQ(Module):
         self.codebook_dim = codebook_dim
         self.num_codebooks = num_codebooks
 
-        keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
+        # keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
+        keep_num_codebooks_dim = (
+            keep_num_codebooks_dim
+            if keep_num_codebooks_dim is not None
+            else (num_codebooks > 1)
+        )
         assert not (num_codebooks > 1 and not keep_num_codebooks_dim)
         self.keep_num_codebooks_dim = keep_num_codebooks_dim
 
@@ -207,8 +220,7 @@ class LFQ(Module):
         return self.codebook.dtype
 
     def indices_to_codes(self, indices, project_out=True):
-        is_img_or_video = indices.ndim >= (3 + int(self.keep_num_codebooks_dim))
-        should_transpose = default(self.channel_first, is_img_or_video)
+        should_transpose = self.channel_first
 
         if not self.keep_num_codebooks_dim:
             indices = rearrange(indices, "... -> ... 1")
@@ -255,13 +267,16 @@ class LFQ(Module):
         x = x.float()
 
         is_img_or_video = x.ndim >= 4
-        should_transpose = default(self.channel_first, is_img_or_video)
+        # should_transpose = default(self.channel_first, is_img_or_video)
+        # should_transpose = self.channel_first if self.channel_first is not None else is_img_or_video
 
         # standardize image or video into (batch, seq, dimension)
 
-        if should_transpose:
+        if self.channel_first:
             x = rearrange(x, "b d ... -> b ... d")
-            x, ps = pack_one(x, "b * d")
+        if is_img_or_video:
+            # x, ps = pack_one(x, "b * d")
+            x, ps = pack([x], "b * d")
 
         assert (
             x.shape[-1] == self.dim
@@ -322,7 +337,7 @@ class LFQ(Module):
 
             # account for mask
 
-            if exists(mask):
+            if mask is not None:
                 prob = prob[mask]
             else:
                 prob = rearrange(prob, "b n ... -> (b n) ...")
@@ -371,7 +386,7 @@ class LFQ(Module):
                 original_input, quantized.detach(), reduction="none"
             )
 
-            if exists(mask):
+            if mask is not None:
                 commit_loss = commit_loss[mask]
 
             commit_loss = commit_loss.mean()
@@ -388,11 +403,11 @@ class LFQ(Module):
 
         # reconstitute image or video dimensions
 
-        if should_transpose:
+        if is_img_or_video:
             x = unpack_one(x, ps, "b * d")
-            x = rearrange(x, "b ... d -> b d ...")
-
             indices = unpack_one(indices, ps, "b * c")
+        if self.channel_first:
+            x = rearrange(x, "b ... d -> b d ...")
 
         # whether to remove single codebook dim
 

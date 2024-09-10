@@ -4,7 +4,7 @@ from typing import Callable
 
 import torch
 import torch.nn.functional as F
-from einops import rearrange, reduce, repeat
+from einops import pack, rearrange, reduce, repeat
 from torch import nn
 from torch.nn import Module
 from torch.optim import Optimizer
@@ -18,7 +18,6 @@ from vector_quantize_pytorch.utils.general import (
     exists,
     gumbel_sample,
     identity,
-    pack_one,
     unpack_one,
 )
 from vector_quantize_pytorch.utils.losses import orthogonal_loss_fn
@@ -54,7 +53,7 @@ class VectorQuantize(Module):
         layernorm_after_project_in=False,  # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
         threshold_ema_dead_code=0,
         channel_last=True,
-        accept_image_fmap=False,
+        # accept_image_fmap=False,
         commitment_weight=1.0,
         commitment_use_cross_entropy_loss=False,
         orthogonal_reg_weight=0.0,
@@ -188,7 +187,7 @@ class VectorQuantize(Module):
 
         self.codebook_size = codebook_size
 
-        self.accept_image_fmap = accept_image_fmap
+        # self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
         self.register_buffer("zero", torch.tensor(0.0), persistent=False)
@@ -216,7 +215,8 @@ class VectorQuantize(Module):
         if not is_multiheaded:
             codes = codebook[indices]
         else:
-            indices, ps = pack_one(indices, "b * h")
+            # indices, ps = pack_one(indices, "b * h")
+            indices, ps = pack([indices], "b * h")
             indices = rearrange(indices, "b n h -> b h n")
 
             indices = repeat(indices, "b h n -> b h n d", d=codebook.shape[-1])
@@ -249,7 +249,7 @@ class VectorQuantize(Module):
         only_one = x.ndim == 2
 
         if only_one:
-            assert not exists(mask)
+            assert not mask is not None
             x = rearrange(x, "b d -> b 1 d")
 
         shape, device, heads, is_multiheaded, return_loss = (
@@ -260,17 +260,24 @@ class VectorQuantize(Module):
             exists(indices),
         )
 
-        need_transpose = not self.channel_last and not self.accept_image_fmap
+        # need_transpose = not self.channel_last and not self.accept_image_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
+        is_img_or_video = x.ndim >= 4
+
+        if not self.channel_last:
+            x = rearrange(x, "b d ... -> b ... d")
+        if is_img_or_video:
+            # x, ps = pack_one(x, "b * d")
+            x, ps = pack([x], "b * d")
         # rearrange inputs
 
-        if self.accept_image_fmap:
-            height, width = x.shape[-2:]
-            x = rearrange(x, "b c h w -> b (h w) c")
+        # if self.accept_image_fmap:
+        #     height, width = x.shape[-2:]
+        #     x = rearrange(x, "b c h w -> b (h w) c")
 
-        if need_transpose:
-            x = rearrange(x, "b d n -> b n d")
+        # if need_transpose:
+        #     x = rearrange(x, "b d n -> b n d")
 
         # project input
 
@@ -281,6 +288,8 @@ class VectorQuantize(Module):
         if is_multiheaded:
             ein_rhs_eq = "h b n d" if self.separate_codebook_per_head else "1 (b h) n d"
             x = rearrange(x, f"b n (h d) -> {ein_rhs_eq}", h=heads)
+
+        # x = self.project_in(x)
 
         # l2norm for cosine sim, otherwise identity
 
@@ -307,7 +316,7 @@ class VectorQuantize(Module):
         # one step in-place update
 
         if should_inplace_optimize and self.training and not freeze_codebook:
-            if exists(mask):
+            if mask is not None:
                 loss = F.mse_loss(quantize, x.detach(), reduction="none")
 
                 loss_mask = mask
@@ -386,10 +395,18 @@ class VectorQuantize(Module):
             else:
                 embed_ind = rearrange(embed_ind, "1 (b h) n -> b n h", h=heads)
 
-        if self.accept_image_fmap:
-            embed_ind = rearrange(
-                embed_ind, "b (h w) ... -> b h w ...", h=height, w=width
-            )
+        # if is_img_or_video:
+        #     x = unpack_one(x, ps, "b * d")
+        #     indices = unpack_one(indices, ps, "b * c")
+
+        if is_img_or_video and not is_multiheaded:
+            embed_ind = unpack_one(embed_ind, ps, "b *")
+        elif is_img_or_video and is_multiheaded:
+            embed_ind = unpack_one(embed_ind, ps, "b * h")
+        # if self.accept_image_fmap:
+        #     embed_ind = rearrange(
+        #         embed_ind, "b (h w) ... -> b h w ...", h=height, w=width
+        #     )
 
         if only_one:
             embed_ind = rearrange(embed_ind, "b 1 ... -> b ...")
@@ -416,7 +433,7 @@ class VectorQuantize(Module):
 
             if self.has_commitment_loss:
                 if self.commitment_use_cross_entropy_loss:
-                    if exists(mask):
+                    if mask is not None:
                         ce_loss_mask = mask
                         if is_multiheaded:
                             ce_loss_mask = repeat(ce_loss_mask, "b n -> b n h", h=heads)
@@ -424,7 +441,7 @@ class VectorQuantize(Module):
                         embed_ind.masked_fill_(~ce_loss_mask, -1)
 
                     commit_loss = calculate_ce_loss(embed_ind)
-                elif exists(mask):
+                elif mask is not None:
                     # with variable lengthed sequences
                     commit_loss = F.mse_loss(commit_quantize, x, reduction="none")
 
@@ -483,18 +500,22 @@ class VectorQuantize(Module):
 
         # rearrange quantized embeddings
 
-        if need_transpose:
-            quantize = rearrange(quantize, "b n d -> b d n")
+        # if need_transpose:
+        #     quantize = rearrange(quantize, "b n d -> b d n")
 
-        if self.accept_image_fmap:
-            quantize = rearrange(quantize, "b (h w) c -> b c h w", h=height, w=width)
-
+        # if self.accept_image_fmap:
+        #     quantize = rearrange(quantize, "b (h w) c -> b c h w", h=height, w=width)
+        if is_img_or_video:
+            quantize = unpack_one(quantize, ps, "b * d")
+            # indices = unpack_one(indices, ps, "b * c")
+        if not self.channel_last:
+            quantize = rearrange(quantize, "b ... d -> b d ...")
         if only_one:
             quantize = rearrange(quantize, "b 1 d -> b d")
 
         # if masking, only return quantized for where mask has True
 
-        if exists(mask):
+        if mask is not None:
             quantize = torch.where(
                 rearrange(mask, "... -> ... 1"), quantize, orig_input
             )
