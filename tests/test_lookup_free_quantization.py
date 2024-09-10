@@ -7,11 +7,12 @@ from vector_quantize_pytorch.lookup_free_quantization import LFQ
 @pytest.fixture
 def vectors_lfq(dim: int = 4):
     # series = torch.randn(1, 100, dim)
+    series = torch.randn(1, dim, 100)
     images = torch.randn(1, dim, 8, 8)
     video = torch.randn(1, dim, 10, 8, 8)
 
     return [
-        # series,
+        series,
         images,
         video,
     ]
@@ -30,14 +31,15 @@ class TestLFQ:
         assert self.quantizer
         assert self.quantizer.has_projections
 
-    def test_forward(self, vectors_lfq):
+    def test_forward(self, vectors_channel_last):
         # features = torch.randn(1, 1024, 4)  # 4 since there are 4 levels
-        for features in vectors_lfq:
+        for features in vectors_channel_last:
             quantized, indices, _ = self.quantizer(features)
 
             assert quantized.shape == features.shape
             assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
-            assert indices.shape == features.shape[0:1] + features.shape[2:]
+            # assert indices.shape == features.shape[0:1] + features.shape[2:]
+            assert indices.shape == features.shape[:-1]
 
 
 class TestLFQNoProjections:
@@ -53,14 +55,15 @@ class TestLFQNoProjections:
         assert self.quantizer
         assert not self.quantizer.has_projections
 
-    def test_forward(self, vectors_lfq):
+    def test_forward(self, vectors_channel_last):
         # features = torch.randn(1, 1024, 4)  # 4 since there are 4 levels
-        for features in vectors_lfq:
+        for features in vectors_channel_last:
             quantized, indices, _ = self.quantizer(features)
 
             assert quantized.shape == features.shape
             assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
-            assert indices.shape == features.shape[0:1] + features.shape[2:]
+            # assert indices.shape == features.shape[0:1] + features.shape[2:]
+            assert indices.shape == features.shape[:-1]
 
 
 class TestLFQSpherical:
@@ -77,13 +80,14 @@ class TestLFQSpherical:
         assert self.quantizer
         assert self.quantizer.has_projections
 
-    def test_forward(self, vectors_lfq):
+    def test_forward(self, vectors_channel_last):
         # features = torch.randn(1, 1024, 4)  # 4 since there are 4 levels
-        for features in vectors_lfq:
+        for features in vectors_channel_last:
             quantized, indices, _ = self.quantizer(features)
 
             assert quantized.shape == features.shape
-            assert indices.shape == features.shape[0:1] + features.shape[2:]
+            # assert indices.shape == features.shape[0:1] + features.shape[2:]
+            assert indices.shape == features.shape[:-1]
 
             ## Following test failed, as it seems the 'spherical' case is not well implemented...
             # assert torch.all(quantized == self.quantizer.indices_to_codes(indices))
