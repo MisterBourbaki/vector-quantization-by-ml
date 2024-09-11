@@ -33,8 +33,8 @@ class EuclideanCodebook(Module):
         dim,
         codebook_size,
         num_codebooks=1,
-        kmeans_init=False,
-        kmeans_iters=10,
+        initialization_by_kmeans: bool = False,
+        kmeans_iters: int = 10,
         sync_kmeans=True,
         decay=0.8,
         eps=1e-5,
@@ -57,8 +57,8 @@ class EuclideanCodebook(Module):
         self.decay = decay
         self.ema_update = ema_update
 
-        init_fn = uniform_init if not kmeans_init else torch.zeros
-        embed = init_fn(num_codebooks, codebook_size, dim)
+        init_fn = uniform_init if not initialization_by_kmeans else torch.zeros
+        embeddings = init_fn(num_codebooks, codebook_size, dim)
 
         self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
@@ -78,7 +78,7 @@ class EuclideanCodebook(Module):
         self.sample_codebook_temp = sample_codebook_temp
 
         assert not (
-            use_ddp and num_codebooks > 1 and kmeans_init
+            use_ddp and num_codebooks > 1 and initialization_by_kmeans
         ), "kmeans init is not compatible with multiple codebooks in distributed environment for now"
 
         self.sample_fn = (
@@ -99,15 +99,16 @@ class EuclideanCodebook(Module):
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        self.register_buffer("initted", torch.Tensor([not kmeans_init]))
+        # self.register_buffer("is_initialized", torch.Tensor([not initialization_by_kmeans]))
+        self.is_initialized = not initialization_by_kmeans
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
-        self.register_buffer("embed_avg", embed.clone())
+        self.register_buffer("embed_avg", embeddings.clone())
 
         self.learnable_codebook = learnable_codebook
         if learnable_codebook:
-            self.embed = nn.Parameter(embed)
+            self.embeddings = nn.Parameter(embeddings)
         else:
-            self.register_buffer("embed", embed)
+            self.register_buffer("embeddings", embeddings)
 
         # affine related params
 
@@ -129,15 +130,12 @@ class EuclideanCodebook(Module):
         self.register_buffer("codebook_variance", torch.empty(num_codebooks, 1, dim))
 
     @torch.jit.ignore
-    def init_embed_(self, data, mask=None):
-        if self.initted:
-            return
-
+    def initialize_embeddings(self, data, mask=None):
         if mask is not None:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
-        embed, cluster_size = kmeans(
+        embeddings, cluster_size = kmeans(
             data,
             num_clusters=self.codebook_size,
             num_iters=self.kmeans_iters,
@@ -145,12 +143,12 @@ class EuclideanCodebook(Module):
             all_reduce_fn=self.kmeans_all_reduce_fn,
         )
 
-        embed_sum = embed * rearrange(cluster_size, "... -> ... 1")
+        embed_sum = embeddings * rearrange(cluster_size, "... -> ... 1")
 
-        self.embed.data.copy_(embed)
+        self.embeddings.data.copy_(embeddings)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        self.initted.data.copy_(torch.Tensor([True]))
+        # self.is_initialized.data.copy_(torch.Tensor([True]))
 
     @torch.jit.ignore
     def update_with_decay(self, buffer_name, new_value, decay):
@@ -170,24 +168,24 @@ class EuclideanCodebook(Module):
         self.register_buffer(buffer_name, value)
 
     @torch.jit.ignore
-    def update_affine(self, data, embed, mask=None):
+    def update_affine(self, data, embeddings, mask=None):
         assert self.affine_param
 
         var_fn = partial(torch.var, unbiased=False)
 
         # calculate codebook mean and variance
 
-        embed = rearrange(embed, "h ... d -> h (...) d")
+        embeddings = rearrange(embeddings, "h ... d -> h (...) d")
 
         if self.training:
             self.update_with_decay(
                 "codebook_mean",
-                reduce(embed, "h n d -> h 1 d", "mean"),
+                reduce(embeddings, "h n d -> h 1 d", "mean"),
                 self.affine_param_codebook_decay,
             )
             self.update_with_decay(
                 "codebook_variance",
-                reduce(embed, "h n d -> h 1 d", var_fn),
+                reduce(embeddings, "h n d -> h 1 d", var_fn),
                 self.affine_param_codebook_decay,
             )
 
@@ -249,7 +247,7 @@ class EuclideanCodebook(Module):
             if not self.distributed_replace_codes:
                 sampled = maybe_distributed_mean(sampled)
 
-            self.embed.data[ind][mask] = sampled
+            self.embeddings.data[ind][mask] = sampled
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
 
@@ -289,22 +287,25 @@ class EuclideanCodebook(Module):
                 c=flatten.shape[0],
                 h=flatten.shape[-2] // (mask.shape[0] * mask.shape[1]),
             )
-
-        self.init_embed_(flatten, mask=mask)
+        if not self.is_initialized:
+            self.initialize_embeddings(flatten, mask=mask)
+            self.is_initialized = True
 
         if self.affine_param:
-            self.update_affine(flatten, self.embed, mask=mask)
+            self.update_affine(flatten, self.embeddings, mask=mask)
 
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
+        embeddings = (
+            self.embeddings if self.learnable_codebook else self.embeddings.detach()
+        )
 
         if self.affine_param:
             codebook_std = self.codebook_variance.clamp(min=1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min=1e-5).sqrt()
-            embed = (embed - self.codebook_mean) * (
+            embeddings = (embeddings - self.codebook_mean) * (
                 batch_std / codebook_std
             ) + self.batch_mean
 
-        dist = -cdist(flatten, embed)
+        dist = -cdist(flatten, embeddings)
 
         embed_ind, embed_onehot = self.gumbel_sample(
             dist, dim=-1, temperature=sample_codebook_temp, training=self.training
@@ -314,9 +315,9 @@ class EuclideanCodebook(Module):
 
         if self.training:
             unpacked_onehot = unpack_one(embed_onehot, ps, "h * c")
-            quantize = einsum("h b n c, h c d -> h b n d", unpacked_onehot, embed)
+            quantize = einsum("h b n c, h c d -> h b n d", unpacked_onehot, embeddings)
         else:
-            quantize = batched_embedding(embed_ind, embed)
+            quantize = batched_embedding(embed_ind, embeddings)
 
         if self.training and self.ema_update and not freeze_codebook:
             if self.affine_param:
@@ -343,7 +344,7 @@ class EuclideanCodebook(Module):
             ) * self.cluster_size.sum(dim=-1, keepdim=True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
-            self.embed.data.copy_(embed_normalized)
+            self.embeddings.data.copy_(embed_normalized)
             self.expire_codes_(x)
 
         if needs_codebook_dim:
@@ -362,7 +363,7 @@ class CosineSimCodebook(Module):
         dim,
         codebook_size,
         num_codebooks=1,
-        kmeans_init=False,
+        initialization_by_kmeans=False,
         kmeans_iters=10,
         sync_kmeans=True,
         decay=0.8,
@@ -382,10 +383,10 @@ class CosineSimCodebook(Module):
         self.ema_update = ema_update
         self.decay = decay
 
-        if not kmeans_init:
-            embed = l2norm(uniform_init(num_codebooks, codebook_size, dim))
+        if not initialization_by_kmeans:
+            embeddings = l2norm(uniform_init(num_codebooks, codebook_size, dim))
         else:
-            embed = torch.zeros(num_codebooks, codebook_size, dim)
+            embeddings = torch.zeros(num_codebooks, codebook_size, dim)
 
         self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
@@ -422,26 +423,24 @@ class CosineSimCodebook(Module):
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        self.register_buffer("initted", torch.Tensor([not kmeans_init]))
+        # self.register_buffer("is_initialized", torch.Tensor([not initialization_by_kmeans]))
+        self.is_initialized = not initialization_by_kmeans
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
-        self.register_buffer("embed_avg", embed.clone())
+        self.register_buffer("embed_avg", embeddings.clone())
 
         self.learnable_codebook = learnable_codebook
         if learnable_codebook:
-            self.embed = nn.Parameter(embed)
+            self.embeddings = nn.Parameter(embeddings)
         else:
-            self.register_buffer("embed", embed)
+            self.register_buffer("embeddings", embeddings)
 
     @torch.jit.ignore
-    def init_embed_(self, data, mask=None):
-        if self.initted:
-            return
-
+    def initialize_embeddings(self, data, mask=None):
         if mask is not None:
             c = data.shape[0]
             data = rearrange(data[mask], "(c n) d -> c n d", c=c)
 
-        embed, cluster_size = kmeans(
+        embeddings, cluster_size = kmeans(
             data,
             self.codebook_size,
             self.kmeans_iters,
@@ -450,12 +449,12 @@ class CosineSimCodebook(Module):
             all_reduce_fn=self.kmeans_all_reduce_fn,
         )
 
-        embed_sum = embed * rearrange(cluster_size, "... -> ... 1")
+        embed_sum = embeddings * rearrange(cluster_size, "... -> ... 1")
 
-        self.embed.data.copy_(embed)
+        self.embeddings.data.copy_(embeddings)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        self.initted.data.copy_(torch.Tensor([True]))
+        # self.is_initialized.data.copy_(torch.Tensor([True]))
 
     def replace(self, batch_samples, batch_mask):
         batch_samples = l2norm(batch_samples)
@@ -469,7 +468,7 @@ class CosineSimCodebook(Module):
             if not self.distributed_replace_codes:
                 sampled = maybe_distributed_mean(sampled)
 
-            self.embed.data[ind][mask] = sampled
+            self.embeddings.data[ind][mask] = sampled
             self.embed_avg.data[ind][mask] = sampled * self.reset_cluster_size
             self.cluster_size.data[ind][mask] = self.reset_cluster_size
 
@@ -512,11 +511,15 @@ class CosineSimCodebook(Module):
                 h=flatten.shape[-2] // (mask.shape[0] * mask.shape[1]),
             )
 
-        self.init_embed_(flatten, mask=mask)
+        if not self.is_initialized:
+            self.initialize_embeddings(flatten, mask=mask)
+            self.is_initialized = True
 
-        embed = self.embed if self.learnable_codebook else self.embed.detach()
+        embeddings = (
+            self.embeddings if self.learnable_codebook else self.embeddings.detach()
+        )
 
-        dist = einsum("h n d, h c d -> h n c", flatten, embed)
+        dist = einsum("h n d, h c d -> h n c", flatten, embeddings)
 
         embed_ind, embed_onehot = self.gumbel_sample(
             dist, dim=-1, temperature=sample_codebook_temp, training=self.training
@@ -525,9 +528,9 @@ class CosineSimCodebook(Module):
 
         if self.training:
             unpacked_onehot = unpack_one(embed_onehot, ps, "h * c")
-            quantize = einsum("h b n c, h c d -> h b n d", unpacked_onehot, embed)
+            quantize = einsum("h b n c, h c d -> h b n d", unpacked_onehot, embeddings)
         else:
-            quantize = batched_embedding(embed_ind, embed)
+            quantize = batched_embedding(embed_ind, embeddings)
 
         if self.training and self.ema_update and not freeze_codebook:
             if mask is not None:
@@ -551,7 +554,7 @@ class CosineSimCodebook(Module):
             embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
             embed_normalized = l2norm(embed_normalized)
 
-            self.embed.data.copy_(l2norm(embed_normalized))
+            self.embeddings.data.copy_(l2norm(embed_normalized))
             self.expire_codes_(x)
 
         if needs_codebook_dim:

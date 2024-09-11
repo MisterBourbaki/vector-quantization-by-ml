@@ -9,11 +9,29 @@ from vector_quantize_pytorch.utils.general import batched_sample_vectors, noop
 from vector_quantize_pytorch.utils.losses import l2norm
 
 
-def batched_bincount(x, *, minlength):
-    batch, dtype, device = x.shape[0], x.dtype, x.device
+def batched_bincount(batch_labels: Tensor, minlength: int) -> Tensor:
+    """Returns the count of labels in the input, batchwise.
+
+    Parameters
+    ----------
+    batch_labels : Tensor
+        a non 1D tensor
+    minlength : int
+        minimal number of bins
+
+    Returns
+    -------
+    Tensor
+        the batched count of bins from the input tensor.
+    """
+    batch, dtype, device = (
+        batch_labels.shape[0],
+        batch_labels.dtype,
+        batch_labels.device,
+    )
     target = torch.zeros(batch, minlength, dtype=dtype, device=device)
-    values = torch.ones_like(x)
-    target.scatter_add_(-1, x, values)
+    values = torch.ones_like(batch_labels)
+    target.scatter_add_(-1, batch_labels, values)
     return target
 
 
@@ -28,7 +46,7 @@ def kmeans(
     """Performs Kmeans algorithm on the provided vectors with 'num_clusters' clusters.
 
     The initialization of the centroids is done using the 'sample_fn' parameter.
-    The algorithm can be used with euclidean distances, with 'use_cosine_sim' set to False,
+    The algorithm can be used with euclidean similarities, with 'use_cosine_sim' set to False,
     and with cosine similarity in the case 'use_cosine_sim' set to True. In that case, the centroids are L2-normalized.
 
     The function returns both centroids tensor and the number of elements in each class/cluster.
@@ -74,9 +92,9 @@ def kmeans(
         reg_fn = Identity()
 
     for _ in range(num_iters):
-        distances = similarity_fn(vectors, centroids)
+        similarities = similarity_fn(vectors, centroids)
 
-        class_labels = torch.argmax(distances, dim=-1)
+        class_labels = torch.argmax(similarities, dim=-1)
         num_per_class = batched_bincount(class_labels, minlength=num_clusters)
         all_reduce_fn(num_per_class)
 
