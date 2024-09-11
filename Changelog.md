@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased]
+
+* Replace the ad-hoc 'cdist' function by the built-in torch.cdist function.
+* In kmeans, move the 'if/else use_cos_sim' a layer above in terms of logic. At start, define both 'dist_fn' and 'ref_fn' depending on whether or not the user wants to use cosine similarity. This change allows for more flexibility for other and future computation of distances. Also the definition is not repeated at each iteration, gaining obvious speed gain.
+* Documentation of 'sample_vectors' and 'batched_sample_vectors' and rewriting of the name of variables for clarification.
+* In 'kmeans', rename of several variables for clarification.
+* Add tests for initialization through kmeans, with or without cosine similarity, and in the case of multihead.
+* Documentation of the kmeans function.
+* In codebooks, renaming some variables and attributes regarding the use of kmeans initialization, for clarity.
+* Documentation and clarification of 'batched_bincount' function.
+* Change the level at which the check on whether the embeddings have initialized or not, that is now before calling the method initialize_embeddings and not inside it. Improve performance and clarity.
+* Adapt change of name for attribute embed to embeddings in ResidualVQ.
+
 ## [Version 1.16.0]
 
 * [BUG FIXED] In lookup_freee_quantization: fix the bug of 'should_transpose', badly defined. The forward method should transpose regardless of 'is or is not image', just regarding the 'channel_first' attribute. If 'is_image_or_video', the input tensor should be packed (regardless of channel first or not.)

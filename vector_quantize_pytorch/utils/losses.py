@@ -1,21 +1,33 @@
 import torch.nn.functional as F
-from einops import rearrange, reduce
-from torch import einsum
+from torch import Tensor, einsum
 
 
-def l2norm(t):
+def l2norm(t: Tensor) -> Tensor:
+    """Returns the L2 normalization of the tensor t w.r.t. last dimension.
+
+    Parameters
+    ----------
+    t : Tensor
+        a torch Tensor of shape (*, D)
+
+    Returns
+    -------
+    Tensor
+        the L2 normalization of the input tensor, w.r.t last dimension.
+        Shape of the output is the same as the input.
+    """
     return F.normalize(t, p=2, dim=-1)
 
 
-def cdist(x, y):
-    x2 = reduce(x**2, "b n d -> b n", "sum")
-    y2 = reduce(y**2, "b n d -> b n", "sum")
-    xy = einsum("b i d, b j d -> b i j", x, y) * -2
-    return (
-        (rearrange(x2, "b i -> b i 1") + rearrange(y2, "b j -> b 1 j") + xy)
-        .clamp(min=0)
-        .sqrt()
-    )
+# def cdist(x, y):
+#     x2 = reduce(x**2, "b n d -> b n", "sum")
+#     y2 = reduce(y**2, "b n d -> b n", "sum")
+#     xy = einsum("b i d, b j d -> b i j", x, y) * -2
+#     return (
+#         (rearrange(x2, "b i -> b i 1") + rearrange(y2, "b j -> b 1 j") + xy)
+#         .clamp(min=0)
+#         .sqrt()
+#     )
 
 
 def orthogonal_loss_fn(t):

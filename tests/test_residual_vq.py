@@ -64,7 +64,7 @@ class TestResidualVQ3:
         dim=dim,
         num_quantizers=num_quantizers,
         codebook_size=2**5,
-        kmeans_init=True,  # set to True
+        initialization_by_kmeans=True,  # set to True
         kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
     )
 
@@ -115,7 +115,7 @@ def test_residual_vq3():
         dim=4,
         codebook_size=2**5,
         num_quantizers=4,
-        kmeans_init=True,  # set to True
+        initialization_by_kmeans=True,  # set to True
         kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
     )
 

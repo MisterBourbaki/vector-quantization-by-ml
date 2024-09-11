@@ -3,7 +3,7 @@ from math import ceil
 import torch
 import torch.nn.functional as F
 from einops import pack, repeat, unpack
-from torch import nn
+from torch import Tensor, nn
 
 
 def pack_one(t, pattern):
@@ -42,19 +42,54 @@ def identity(t):
     return t
 
 
-def sample_vectors(samples, num):
-    num_samples, device = samples.shape[0], samples.device
-    if num_samples >= num:
-        indices = torch.randperm(num_samples, device=device)[:num]
+def sample_vectors(vector: Tensor, num_of_samples: int) -> Tensor:
+    """Sample randomly num_of_samples vectors from the vector.
+
+    The input tensor is of shape (N, *). The function runs as follow:
+        * if N is greater than num_of_samples, then the output is a random collection of num_of_samples vector.
+        * if N is less than num_of_samples, then the output is a collection of possibly repeated, randomly selected vectors from the input.
+
+    In both cases, the output tensor is of shape (num_of_samples, *).
+
+    Parameters
+    ----------
+    vector : Tensor
+        a tensor of shape (N, *)
+    num_of_samples : int
+        the number of samples to take from the vector
+
+    Returns
+    -------
+    Tensor
+        a tensor of shape (num_of_samples, *)
+    """
+    num_of_vec, device = vector.shape[0], vector.device
+    if num_of_vec >= num_of_samples:
+        indices = torch.randperm(num_of_vec, device=device)[:num_of_samples]
     else:
-        indices = torch.randint(0, num_samples, (num,), device=device)
+        indices = torch.randint(0, num_of_vec, (num_of_samples,), device=device)
 
-    return samples[indices]
+    return vector[indices]
 
 
-def batched_sample_vectors(samples, num):
+def batched_sample_vectors(batch: Tensor, num_of_samples: int) -> Tensor:
+    """Return a batch of sampled vectors from the input batch.
+
+    Parameters
+    ----------
+    batch : Tensor
+        a tensor (batch of vectors) of shape (B, N, *)
+    num_of_samples : int
+        the number of samples to take from the each vector of the batch
+
+    Returns
+    -------
+    Tensor
+        a batch of vectors of shape (B, num_of_samples, *)
+    """
     return torch.stack(
-        [sample_vectors(sample, num) for sample in samples.unbind(dim=0)], dim=0
+        [sample_vectors(vector, num_of_samples) for vector in batch.unbind(dim=0)],
+        dim=0,
     )
 
 
