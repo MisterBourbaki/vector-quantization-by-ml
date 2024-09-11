@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [Version 1.16.1]
 
 * Replace the ad-hoc 'cdist' function by the built-in torch.cdist function.
 * In kmeans, move the 'if/else use_cos_sim' a layer above in terms of logic. At start, define both 'dist_fn' and 'ref_fn' depending on whether or not the user wants to use cosine similarity. This change allows for more flexibility for other and future computation of distances. Also the definition is not repeated at each iteration, gaining obvious speed gain.
