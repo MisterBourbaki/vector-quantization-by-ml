@@ -8,6 +8,9 @@
 * In 'kmeans', rename of several variables for clarification.
 * Add tests for initialization through kmeans, with or without cosine similarity, and in the case of multihead.
 * Documentation of the kmeans function.
+* In codebooks, renaming some variables and attributes regarding the use of kmeans initialization, for clarity.
+* Documentation and clarification of 'batched_bincount' function.
+* Change the level at which the check on whether the embeddings have initialized or not, that is now before calling the method initialize_embeddings and not inside it. Improve performance and clarity.
 
 ## [Version 1.16.0]
 
