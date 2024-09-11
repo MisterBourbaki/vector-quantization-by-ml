@@ -124,7 +124,7 @@ class TestVectorQuantizerMultiheadWithKmeansInit:
         heads=heads,  # number of heads to vector quantize, codebook shared across all heads
         separate_codebook_per_head=True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
         codebook_size=2**5,
-        kmeans_init=True,
+        initialization_by_kmeans=True,
         # accept_image_fmap=True,
     )
 
@@ -175,14 +175,14 @@ class TestVectorQuantizerLowerCode:
 
 class TestVectorQuantizerKmeansInit:
     dim = 4
-    kmeans_init = True
+    initialization_by_kmeans = True
     codebook_size = 2**5
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
         decay=0.8,
         commitment_weight=1.0,
-        kmeans_init=kmeans_init,
+        initialization_by_kmeans=initialization_by_kmeans,
     )
 
     def test_init(self):
@@ -201,14 +201,14 @@ class TestVectorQuantizerKmeansInit:
 
 class TestVectorQuantizerKmeansInitWithCosine:
     dim = 4
-    kmeans_init = True
+    initialization_by_kmeans = True
     codebook_size = 2**5
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
         decay=0.8,
         commitment_weight=1.0,
-        kmeans_init=kmeans_init,
+        initialization_by_kmeans=initialization_by_kmeans,
         use_cosine_sim=True,
     )
 
@@ -228,14 +228,14 @@ class TestVectorQuantizerKmeansInitWithCosine:
 
 class TestVectorQuantizerKmeansInitWithFewSamples:
     dim = 4
-    kmeans_init = True
+    initialization_by_kmeans = True
     codebook_size = 2**5
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
         decay=0.8,
         commitment_weight=1.0,
-        kmeans_init=kmeans_init,
+        initialization_by_kmeans=initialization_by_kmeans,
     )
 
     def test_init(self):
