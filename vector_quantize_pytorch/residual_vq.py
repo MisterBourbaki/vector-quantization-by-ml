@@ -93,7 +93,7 @@ class ResidualVQ(Module):
 
     @property
     def codebooks(self):
-        codebooks = [layer._codebook.embed for layer in self.layers]
+        codebooks = [layer._codebook.embeddings for layer in self.layers]
         codebooks = torch.stack(codebooks, dim=0)
         codebooks = rearrange(codebooks, "q 1 c d -> q c d")
         return codebooks
@@ -246,9 +246,9 @@ class ResidualVQ(Module):
                 ce_losses.append(ce_loss)
                 continue
 
-            embed_indices, loss = rest
+            embeddings_indices, loss = rest
 
-            all_indices.append(embed_indices)
+            all_indices.append(embeddings_indices)
             all_losses.append(loss)
 
         # project out, if needed
