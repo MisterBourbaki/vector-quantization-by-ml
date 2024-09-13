@@ -65,7 +65,7 @@ class TestResidualVQ3:
         num_quantizers=num_quantizers,
         codebook_size=2**5,
         initialization_by_kmeans=True,  # set to True
-        kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
+        # kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
     )
 
     def test_init(self):
@@ -116,7 +116,7 @@ def test_residual_vq3():
         codebook_size=2**5,
         num_quantizers=4,
         initialization_by_kmeans=True,  # set to True
-        kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
+        # kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
     )
 
     x = torch.randn(1, 1024, 4)

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from functools import partial
 
 import torch
@@ -27,6 +28,23 @@ from vector_quantize_pytorch.utils.kmeans import kmeans
 from vector_quantize_pytorch.utils.losses import l2norm
 
 
+@dataclass
+class AffineParameters:
+    """Dataclass gathering parameters for affine update."""
+
+    sync: bool
+    batch_decay: float = 0.99
+    codebook_decay: float = 0.9
+
+
+@dataclass
+class KmeansParameters:
+    """Dataclass gathering parameters for Kmeans algorithm."""
+
+    iter: int = 10
+    sync: bool = True
+
+
 class EuclideanCodebook(Module):
     def __init__(
         self,
@@ -34,10 +52,9 @@ class EuclideanCodebook(Module):
         codebook_size,
         num_codebooks=1,
         initialization_by_kmeans: bool = False,
-        kmeans_iters: int = 10,
-        sync_kmeans=True,
+        kmeans_params: KmeansParameters = None,
         decay=0.8,
-        eps=1e-5,
+        eps_for_smoothing=1e-5,
         threshold_ema_dead_code=2,
         reset_cluster_size=None,
         use_ddp=False,
@@ -46,10 +63,8 @@ class EuclideanCodebook(Module):
         gumbel_sample=gumbel_sample,
         sample_codebook_temp=1.0,
         ema_update=True,
-        affine_param=False,
-        sync_affine_param=False,
-        affine_param_batch_decay=0.99,
-        affine_param_codebook_decay=0.9,
+        use_affine=False,
+        affine_params: AffineParameters = None,
     ):
         super().__init__()
         self.transform_input = identity
@@ -63,10 +78,9 @@ class EuclideanCodebook(Module):
         self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
 
-        self.kmeans_iters = kmeans_iters
-        self.eps = eps
+        self.kmeans_params = kmeans_params
+        self.eps_for_smoothing = eps_for_smoothing
         self.threshold_ema_dead_code = threshold_ema_dead_code
-        # self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
         self.reset_cluster_size = (
             reset_cluster_size
             if reset_cluster_size is not None
@@ -83,19 +97,19 @@ class EuclideanCodebook(Module):
 
         self.sample_fn = (
             sample_vectors_distributed
-            if use_ddp and sync_kmeans
+            if use_ddp and self.kmeans_params.sync
             else batched_sample_vectors
         )
 
         self.distributed_replace_codes = distributed_replace_codes
         self.replace_sample_fn = (
             sample_vectors_distributed
-            if use_ddp and sync_kmeans and distributed_replace_codes
+            if use_ddp and self.kmeans_params.sync and distributed_replace_codes
             else batched_sample_vectors
         )
 
         self.kmeans_all_reduce_fn = (
-            distributed.all_reduce if use_ddp and sync_kmeans else noop
+            distributed.all_reduce if use_ddp and self.kmeans_params.sync else noop
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
@@ -112,14 +126,8 @@ class EuclideanCodebook(Module):
 
         # affine related params
 
-        self.affine_param = affine_param
-        self.sync_affine_param = sync_affine_param
-
-        if not affine_param:
-            return
-
-        self.affine_param_batch_decay = affine_param_batch_decay
-        self.affine_param_codebook_decay = affine_param_codebook_decay
+        self.use_affine = use_affine
+        self.affine_params = affine_params
 
         self.register_buffer("batch_mean", None)
         self.register_buffer("batch_variance", None)
@@ -138,7 +146,7 @@ class EuclideanCodebook(Module):
         embeddings, cluster_size = kmeans(
             data,
             num_clusters=self.codebook_size,
-            num_iters=self.kmeans_iters,
+            num_iters=self.kmeans_params.iter,
             sample_fn=self.sample_fn,
             all_reduce_fn=self.kmeans_all_reduce_fn,
         )
@@ -169,7 +177,7 @@ class EuclideanCodebook(Module):
 
     @torch.jit.ignore
     def update_affine(self, data, embeddings, mask=None):
-        assert self.affine_param
+        assert self.use_affine
 
         var_fn = partial(torch.var, unbiased=False)
 
@@ -181,12 +189,12 @@ class EuclideanCodebook(Module):
             self.update_with_decay(
                 "codebook_mean",
                 reduce(embeddings, "h n d -> h 1 d", "mean"),
-                self.affine_param_codebook_decay,
+                self.affine_params.codebook_decay,
             )
             self.update_with_decay(
                 "codebook_variance",
                 reduce(embeddings, "h n d -> h 1 d", var_fn),
-                self.affine_param_codebook_decay,
+                self.affine_params.codebook_decay,
             )
 
         # prepare batch data, which depends on whether it has masking
@@ -199,16 +207,16 @@ class EuclideanCodebook(Module):
 
         # calculate batch mean and variance
 
-        if not self.sync_affine_param:
+        if not self.affine_params.sync:
             self.update_with_decay(
                 "batch_mean",
                 reduce(data, "h n d -> h 1 d", "mean"),
-                self.affine_param_batch_decay,
+                self.affine_params.batch_decay,
             )
             self.update_with_decay(
                 "batch_variance",
                 reduce(data, "h n d -> h 1 d", var_fn),
-                self.affine_param_batch_decay,
+                self.affine_params.batch_decay,
             )
             return
 
@@ -225,7 +233,11 @@ class EuclideanCodebook(Module):
         distributed.all_reduce(batch_sum)
         batch_mean = batch_sum / num_vectors
 
-        self.update_with_decay("batch_mean", batch_mean, self.affine_param_batch_decay)
+        self.update_with_decay(
+            "batch_mean",
+            batch_mean,
+            self.affine_params.batch_decay,
+        )
 
         # calculate distributed variance
 
@@ -234,7 +246,9 @@ class EuclideanCodebook(Module):
         batch_variance = variance_numer / num_vectors
 
         self.update_with_decay(
-            "batch_variance", batch_variance, self.affine_param_batch_decay
+            "batch_variance",
+            batch_variance,
+            self.affine_params.batch_decay,
         )
 
     def replace(self, batch_samples, batch_mask):
@@ -266,7 +280,6 @@ class EuclideanCodebook(Module):
     @autocast(enabled=False)
     def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        # sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
         sample_codebook_temp = (
             sample_codebook_temp
             if sample_codebook_temp is not None
@@ -277,7 +290,6 @@ class EuclideanCodebook(Module):
         if needs_codebook_dim:
             x = rearrange(x, "... -> 1 ...")
 
-        # dtype = x.dtype
         flatten, ps = pack_one(x, "h * d")
 
         if mask is not None:
@@ -291,14 +303,14 @@ class EuclideanCodebook(Module):
             self.initialize_embeddings(flatten, mask=mask)
             self.is_initialized = True
 
-        if self.affine_param:
+        if self.use_affine:
             self.update_affine(flatten, self.embeddings, mask=mask)
 
         embeddings = (
             self.embeddings if self.learnable_codebook else self.embeddings.detach()
         )
 
-        if self.affine_param:
+        if self.use_affine:
             codebook_std = self.codebook_variance.clamp(min=1e-5).sqrt()
             batch_std = self.batch_variance.clamp(min=1e-5).sqrt()
             embeddings = (embeddings - self.codebook_mean) * (
@@ -320,7 +332,7 @@ class EuclideanCodebook(Module):
             quantize = batched_embedding(embed_ind, embeddings)
 
         if self.training and self.ema_update and not freeze_codebook:
-            if self.affine_param:
+            if self.use_affine:
                 flatten = (flatten - self.batch_mean) * (
                     codebook_std / batch_std
                 ) + self.codebook_mean
@@ -340,7 +352,7 @@ class EuclideanCodebook(Module):
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(
-                self.cluster_size, self.codebook_size, self.eps
+                self.cluster_size, self.codebook_size, self.eps_for_smoothing
             ) * self.cluster_size.sum(dim=-1, keepdim=True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")
@@ -364,10 +376,9 @@ class CosineSimCodebook(Module):
         codebook_size,
         num_codebooks=1,
         initialization_by_kmeans=False,
-        kmeans_iters=10,
-        sync_kmeans=True,
+        kmeans_params: KmeansParameters = None,
         decay=0.8,
-        eps=1e-5,
+        eps_for_smoothing=1e-5,
         threshold_ema_dead_code=2,
         reset_cluster_size=None,
         use_ddp=False,
@@ -391,10 +402,9 @@ class CosineSimCodebook(Module):
         self.codebook_size = codebook_size
         self.num_codebooks = num_codebooks
 
-        self.kmeans_iters = kmeans_iters
-        self.eps = eps
+        self.kmeans_params = kmeans_params
+        self.eps_for_smoothing = eps_for_smoothing
         self.threshold_ema_dead_code = threshold_ema_dead_code
-        # self.reset_cluster_size = default(reset_cluster_size, threshold_ema_dead_code)
         self.reset_cluster_size = (
             reset_cluster_size
             if reset_cluster_size is not None
@@ -407,23 +417,22 @@ class CosineSimCodebook(Module):
 
         self.sample_fn = (
             sample_vectors_distributed
-            if use_ddp and sync_kmeans
+            if use_ddp and self.kmeans_params.sync
             else batched_sample_vectors
         )
 
         self.distributed_replace_codes = distributed_replace_codes
         self.replace_sample_fn = (
             sample_vectors_distributed
-            if use_ddp and sync_kmeans and distributed_replace_codes
+            if use_ddp and self.kmeans_params.sync and distributed_replace_codes
             else batched_sample_vectors
         )
 
         self.kmeans_all_reduce_fn = (
-            distributed.all_reduce if use_ddp and sync_kmeans else noop
+            distributed.all_reduce if use_ddp and self.kmeans_params.sync else noop
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        # self.register_buffer("is_initialized", torch.Tensor([not initialization_by_kmeans]))
         self.is_initialized = not initialization_by_kmeans
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
         self.register_buffer("embed_avg", embeddings.clone())
@@ -443,7 +452,7 @@ class CosineSimCodebook(Module):
         embeddings, cluster_size = kmeans(
             data,
             self.codebook_size,
-            self.kmeans_iters,
+            self.kmeans_params.iter,
             use_cosine_sim=True,
             sample_fn=self.sample_fn,
             all_reduce_fn=self.kmeans_all_reduce_fn,
@@ -454,7 +463,6 @@ class CosineSimCodebook(Module):
         self.embeddings.data.copy_(embeddings)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        # self.is_initialized.data.copy_(torch.Tensor([True]))
 
     def replace(self, batch_samples, batch_mask):
         batch_samples = l2norm(batch_samples)
@@ -487,7 +495,6 @@ class CosineSimCodebook(Module):
     @autocast(enabled=False)
     def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        # sample_codebook_temp = default(sample_codebook_temp, self.sample_codebook_temp)
         sample_codebook_temp = (
             sample_codebook_temp
             if sample_codebook_temp is not None
@@ -498,8 +505,6 @@ class CosineSimCodebook(Module):
 
         if needs_codebook_dim:
             x = rearrange(x, "... -> 1 ...")
-
-        # dtype = x.dtype
 
         flatten, ps = pack_one(x, "h * d")
 
@@ -548,7 +553,7 @@ class CosineSimCodebook(Module):
             ema_inplace(self.embed_avg.data, embed_sum, self.decay)
 
             cluster_size = laplace_smoothing(
-                self.cluster_size, self.codebook_size, self.eps
+                self.cluster_size, self.codebook_size, self.eps_for_smoothing
             ) * self.cluster_size.sum(dim=-1, keepdim=True)
 
             embed_normalized = self.embed_avg / rearrange(cluster_size, "... -> ... 1")

@@ -9,7 +9,12 @@ from torch import nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebook
+from vector_quantize_pytorch.codebooks import (
+    AffineParameters,
+    CosineSimCodebook,
+    EuclideanCodebook,
+    KmeansParameters,
+)
 from vector_quantize_pytorch.utils.distributed import (
     is_distributed,
 )
@@ -45,15 +50,12 @@ class VectorQuantize(Module):
         separate_codebook_per_head=False,
         decay=0.8,
         eps=1e-5,
-        freeze_codebook=False,
         initialization_by_kmeans=False,
-        kmeans_iters=10,
-        sync_kmeans=True,
+        kmeans_params: KmeansParameters = KmeansParameters(),
         use_cosine_sim=False,
         layernorm_after_project_in=False,  # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
         threshold_ema_dead_code=0,
         channel_last=True,
-        # accept_image_fmap=False,
         commitment_weight=1.0,
         commitment_use_cross_entropy_loss=False,
         orthogonal_reg_weight=0.0,
@@ -67,15 +69,13 @@ class VectorQuantize(Module):
         distributed_replace_codes=True,
         reinmax=False,  # using reinmax for improved straight-through
         sync_codebook=None,
-        sync_affine_param=False,
         ema_update=True,
         learnable_codebook=False,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used if using learnable_codebook
-        affine_param=False,
-        affine_param_batch_decay=0.99,
-        affine_param_codebook_decay=0.9,
+        use_affine=False,
+        affine_params: AffineParameters = None,
         sync_update_v=0.0,  # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
@@ -83,7 +83,6 @@ class VectorQuantize(Module):
         self.heads = heads
         self.separate_codebook_per_head = separate_codebook_per_head
 
-        # codebook_dim = default(codebook_dim, dim)
         codebook_dim = codebook_dim if codebook_dim is not None else dim
         codebook_input_dim = codebook_dim * heads
 
@@ -152,8 +151,7 @@ class VectorQuantize(Module):
             num_codebooks=heads if separate_codebook_per_head else 1,
             codebook_size=codebook_size,
             initialization_by_kmeans=initialization_by_kmeans,
-            kmeans_iters=kmeans_iters,
-            sync_kmeans=sync_kmeans,
+            kmeans_params=kmeans_params,
             decay=decay,
             eps=eps,
             threshold_ema_dead_code=threshold_ema_dead_code,
@@ -165,16 +163,14 @@ class VectorQuantize(Module):
             distributed_replace_codes=distributed_replace_codes,
         )
 
-        if affine_param:
+        if use_affine:
             assert (
                 not use_cosine_sim
             ), "affine param is only compatible with euclidean codebook"
             codebook_kwargs = dict(
                 **codebook_kwargs,
-                affine_param=True,
-                sync_affine_param=sync_affine_param,
-                affine_param_batch_decay=affine_param_batch_decay,
-                affine_param_codebook_decay=affine_param_codebook_decay,
+                use_affine=True,
+                affine_params=affine_params,
             )
 
         self._codebook = codebook_class(**codebook_kwargs)
@@ -187,7 +183,6 @@ class VectorQuantize(Module):
 
         self.codebook_size = codebook_size
 
-        # self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
         self.register_buffer("zero", torch.tensor(0.0), persistent=False)
@@ -215,7 +210,6 @@ class VectorQuantize(Module):
         if not is_multiheaded:
             codes = codebook[indices]
         else:
-            # indices, ps = pack_one(indices, "b * h")
             indices, ps = pack([indices], "b * h")
             indices = rearrange(indices, "b n h -> b h n")
 
@@ -260,7 +254,6 @@ class VectorQuantize(Module):
             exists(indices),
         )
 
-        # need_transpose = not self.channel_last and not self.accept_image_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
         is_img_or_video = x.ndim >= 4
@@ -268,18 +261,7 @@ class VectorQuantize(Module):
         if not self.channel_last:
             x = rearrange(x, "b d ... -> b ... d")
         if is_img_or_video:
-            # x, ps = pack_one(x, "b * d")
             x, ps = pack([x], "b * d")
-        # rearrange inputs
-
-        # if self.accept_image_fmap:
-        #     height, width = x.shape[-2:]
-        #     x = rearrange(x, "b c h w -> b (h w) c")
-
-        # if need_transpose:
-        #     x = rearrange(x, "b d n -> b n d")
-
-        # project input
 
         x = self.project_in(x)
 
@@ -288,8 +270,6 @@ class VectorQuantize(Module):
         if is_multiheaded:
             ein_rhs_eq = "h b n d" if self.separate_codebook_per_head else "1 (b h) n d"
             x = rearrange(x, f"b n (h d) -> {ein_rhs_eq}", h=heads)
-
-        # x = self.project_in(x)
 
         # l2norm for cosine sim, otherwise identity
 
@@ -395,18 +375,10 @@ class VectorQuantize(Module):
             else:
                 embed_ind = rearrange(embed_ind, "1 (b h) n -> b n h", h=heads)
 
-        # if is_img_or_video:
-        #     x = unpack_one(x, ps, "b * d")
-        #     indices = unpack_one(indices, ps, "b * c")
-
         if is_img_or_video and not is_multiheaded:
             embed_ind = unpack_one(embed_ind, ps, "b *")
         elif is_img_or_video and is_multiheaded:
             embed_ind = unpack_one(embed_ind, ps, "b * h")
-        # if self.accept_image_fmap:
-        #     embed_ind = rearrange(
-        #         embed_ind, "b (h w) ... -> b h w ...", h=height, w=width
-        #     )
 
         if only_one:
             embed_ind = rearrange(embed_ind, "b 1 ... -> b ...")
@@ -500,14 +472,8 @@ class VectorQuantize(Module):
 
         # rearrange quantized embeddings
 
-        # if need_transpose:
-        #     quantize = rearrange(quantize, "b n d -> b d n")
-
-        # if self.accept_image_fmap:
-        #     quantize = rearrange(quantize, "b (h w) c -> b c h w", h=height, w=width)
         if is_img_or_video:
             quantize = unpack_one(quantize, ps, "b * d")
-            # indices = unpack_one(indices, ps, "b * c")
         if not self.channel_last:
             quantize = rearrange(quantize, "b ... d -> b d ...")
         if only_one:
