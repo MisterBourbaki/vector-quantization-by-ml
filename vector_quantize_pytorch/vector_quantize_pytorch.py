@@ -49,7 +49,7 @@ class VectorQuantize(Module):
         heads=1,
         separate_codebook_per_head=False,
         decay=0.8,
-        eps=1e-5,
+        eps_for_smoothing=1e-5,
         initialization_by_kmeans=False,
         kmeans_params: KmeansParameters = KmeansParameters(),
         use_cosine_sim=False,
@@ -104,11 +104,13 @@ class VectorQuantize(Module):
 
         self.has_projections = requires_projection
 
-        self.eps = eps
+        self.eps_for_smoothing = eps_for_smoothing
 
         self.has_commitment_loss = commitment_weight > 0.0
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss  # whether to use cross entropy loss to codebook as commitment loss
+
+        # self.codebook_params = codebook_params
 
         self.learnable_codebook = learnable_codebook
 
@@ -153,7 +155,7 @@ class VectorQuantize(Module):
             initialization_by_kmeans=initialization_by_kmeans,
             kmeans_params=kmeans_params,
             decay=decay,
-            eps=eps,
+            eps_for_smoothing=eps_for_smoothing,
             threshold_ema_dead_code=threshold_ema_dead_code,
             use_ddp=sync_codebook,
             learnable_codebook=has_codebook_orthogonal_loss or learnable_codebook,
