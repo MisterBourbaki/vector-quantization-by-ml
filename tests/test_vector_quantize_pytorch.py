@@ -1,17 +1,20 @@
 import torch
 
 from vector_quantize_pytorch import VectorQuantize
+from vector_quantize_pytorch.codebooks import CodebookParams, KmeansParameters
 
 
 class TestVectorQuantizer:
     dim = 4
     codebook_size = 2**5
+    codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
 
     quantizer = VectorQuantize(
         dim=dim,
         codebook_size=codebook_size,  # codebook size
-        decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
+        # decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
         commitment_weight=1.0,  # the weight on the commitment loss
+        codebook_params=codebook_params,
     )
 
     def test_init(self):
@@ -31,13 +34,15 @@ class TestVectorQuantizer:
 class TestVectorQuantizerChannelFirst:
     dim = 4
     codebook_size = 2**5
+    codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
 
     quantizer = VectorQuantize(
         dim=dim,
         codebook_size=codebook_size,  # codebook size
-        decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
+        # decay=0.8,  # the exponential moving average decay, lower means the dictionary will change faster
         commitment_weight=1.0,  # the weight on the commitment loss
         channel_last=False,
+        codebook_params=codebook_params,
     )
 
     def test_init(self):
@@ -55,11 +60,15 @@ class TestVectorQuantizerChannelFirst:
 
 
 class TestVectorQuantizerCosine:
+    dim = 4
+    codebook_size = 2**5
+    codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
     quantizer = VectorQuantize(
         # dim=256,
         dim=4,
         codebook_size=2**5,  # codebook size
         use_cosine_sim=True,
+        codebook_params=codebook_params,
     )
 
     def test_init(self):
@@ -78,6 +87,9 @@ class TestVectorQuantizerMultihead:
     codebook_dim = 32
     heads = 2
     dim = codebook_dim * heads
+    codebook_size = 2**5
+
+    codebook_params = CodebookParams(dim=codebook_dim, codebook_size=codebook_size)
     quantizer = VectorQuantize(
         dim=dim,
         codebook_dim=codebook_dim,  # a number of papers have shown smaller codebook dimension to be acceptable
@@ -85,6 +97,7 @@ class TestVectorQuantizerMultihead:
         separate_codebook_per_head=True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
         codebook_size=2**5,
         # accept_image_fmap=True,
+        codebook_params=codebook_params,
     )
 
     def test_init(self):
@@ -118,13 +131,21 @@ class TestVectorQuantizerMultiheadWithKmeansInit:
     codebook_dim = 32
     heads = 2
     dim = codebook_dim * heads
+    kmeans_params = KmeansParameters()
+    codebook_params = CodebookParams(
+        dim=codebook_dim,
+        codebook_size=2**5,
+        initialization_by_kmeans=True,
+        kmeans_params=kmeans_params,
+    )
     quantizer = VectorQuantize(
         dim=dim,
         codebook_dim=codebook_dim,  # a number of papers have shown smaller codebook dimension to be acceptable
         heads=heads,  # number of heads to vector quantize, codebook shared across all heads
         separate_codebook_per_head=True,  # whether to have a separate codebook per head. False would mean 1 shared codebook
         codebook_size=2**5,
-        initialization_by_kmeans=True,
+        # initialization_by_kmeans=True,
+        codebook_params=codebook_params,
         # accept_image_fmap=True,
     )
 
@@ -156,10 +177,14 @@ class TestVectorQuantizerMultiheadWithKmeansInit:
 
 
 class TestVectorQuantizerLowerCode:
+    dim = 4
+    codebook_size = 2**5
+    codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=256,
         codebook_dim=2,  # paper proposes setting this to 32 or as low as 8 to increase codebook usage
+        codebook_params=codebook_params,
     )
 
     def test_init(self):
@@ -177,12 +202,21 @@ class TestVectorQuantizerKmeansInit:
     dim = 4
     initialization_by_kmeans = True
     codebook_size = 2**5
+    kmeans_params = KmeansParameters()
+    codebook_params = CodebookParams(
+        dim=dim,
+        codebook_size=codebook_size,
+        initialization_by_kmeans=True,
+        kmeans_params=KmeansParameters(),
+    )
+
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
-        decay=0.8,
+        # decay=0.8,
         commitment_weight=1.0,
-        initialization_by_kmeans=initialization_by_kmeans,
+        codebook_params=codebook_params,
+        # initialization_by_kmeans=initialization_by_kmeans,
     )
 
     def test_init(self):
@@ -203,12 +237,21 @@ class TestVectorQuantizerKmeansInitWithCosine:
     dim = 4
     initialization_by_kmeans = True
     codebook_size = 2**5
+    kmeans_params = KmeansParameters()
+    codebook_params = CodebookParams(
+        dim=dim,
+        codebook_size=2**5,
+        initialization_by_kmeans=True,
+        kmeans_params=kmeans_params,
+    )
+
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
-        decay=0.8,
+        # decay=0.8,
         commitment_weight=1.0,
-        initialization_by_kmeans=initialization_by_kmeans,
+        # initialization_by_kmeans=initialization_by_kmeans,
+        codebook_params=codebook_params,
         use_cosine_sim=True,
     )
 
@@ -230,12 +273,21 @@ class TestVectorQuantizerKmeansInitWithFewSamples:
     dim = 4
     initialization_by_kmeans = True
     codebook_size = 2**5
+    kmeans_params = KmeansParameters()
+    codebook_params = CodebookParams(
+        dim=dim,
+        codebook_size=2**5,
+        initialization_by_kmeans=True,
+        kmeans_params=kmeans_params,
+    )
+
     quantizer = VectorQuantize(
         dim=4,
         codebook_size=codebook_size,
-        decay=0.8,
+        # decay=0.8,
         commitment_weight=1.0,
-        initialization_by_kmeans=initialization_by_kmeans,
+        # initialization_by_kmeans=initialization_by_kmeans,
+        codebook_params=codebook_params,
     )
 
     def test_init(self):

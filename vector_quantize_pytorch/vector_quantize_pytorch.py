@@ -11,9 +11,9 @@ from torch.optim import Optimizer
 
 from vector_quantize_pytorch.codebooks import (
     AffineParameters,
+    CodebookParams,
     CosineSimCodebook,
     EuclideanCodebook,
-    KmeansParameters,
 )
 from vector_quantize_pytorch.utils.distributed import (
     is_distributed,
@@ -45,16 +45,12 @@ class VectorQuantize(Module):
         self,
         dim,
         codebook_size,
+        codebook_params: CodebookParams,
         codebook_dim=None,
         heads=1,
         separate_codebook_per_head=False,
-        decay=0.8,
-        eps_for_smoothing=1e-5,
-        initialization_by_kmeans=False,
-        kmeans_params: KmeansParameters = KmeansParameters(),
         use_cosine_sim=False,
         layernorm_after_project_in=False,  # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
-        threshold_ema_dead_code=0,
         channel_last=True,
         commitment_weight=1.0,
         commitment_use_cross_entropy_loss=False,
@@ -69,8 +65,6 @@ class VectorQuantize(Module):
         distributed_replace_codes=True,
         reinmax=False,  # using reinmax for improved straight-through
         sync_codebook=None,
-        ema_update=True,
-        learnable_codebook=False,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used if using learnable_codebook
@@ -104,7 +98,7 @@ class VectorQuantize(Module):
 
         self.has_projections = requires_projection
 
-        self.eps_for_smoothing = eps_for_smoothing
+        # self.eps_for_smoothing = eps_for_smoothing
 
         self.has_commitment_loss = commitment_weight > 0.0
         self.commitment_weight = commitment_weight
@@ -112,7 +106,7 @@ class VectorQuantize(Module):
 
         # self.codebook_params = codebook_params
 
-        self.learnable_codebook = learnable_codebook
+        self.learnable_codebook = codebook_params.learnable_codebook
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
@@ -126,12 +120,12 @@ class VectorQuantize(Module):
         self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
 
         assert not (
-            ema_update and learnable_codebook
+            codebook_params.ema_update and codebook_params.learnable_codebook
         ), "learnable codebook not compatible with EMA update"
 
         assert 0 <= sync_update_v <= 1.0
         assert not (
-            sync_update_v > 0.0 and not learnable_codebook
+            sync_update_v > 0.0 and not codebook_params.learnable_codebook
         ), "learnable codebook must be turned on"
 
         self.sync_update_v = sync_update_v
@@ -152,16 +146,17 @@ class VectorQuantize(Module):
             dim=codebook_dim,
             num_codebooks=heads if separate_codebook_per_head else 1,
             codebook_size=codebook_size,
-            initialization_by_kmeans=initialization_by_kmeans,
-            kmeans_params=kmeans_params,
-            decay=decay,
-            eps_for_smoothing=eps_for_smoothing,
-            threshold_ema_dead_code=threshold_ema_dead_code,
+            initialization_by_kmeans=codebook_params.initialization_by_kmeans,
+            kmeans_params=codebook_params.kmeans_params,
+            decay=codebook_params.decay,
+            eps_for_smoothing=codebook_params.eps_for_smoothing,
+            threshold_ema_dead_code=codebook_params.threshold_ema_dead_code,
             use_ddp=sync_codebook,
-            learnable_codebook=has_codebook_orthogonal_loss or learnable_codebook,
+            learnable_codebook=has_codebook_orthogonal_loss
+            or codebook_params.learnable_codebook,
             sample_codebook_temp=sample_codebook_temp,
             gumbel_sample=gumbel_sample_fn,
-            ema_update=ema_update,
+            ema_update=codebook_params.ema_update,
             distributed_replace_codes=distributed_replace_codes,
         )
 

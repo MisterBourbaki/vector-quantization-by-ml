@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import partial
+from typing import Callable
 
 import torch
 from einops import rearrange, reduce, repeat
@@ -45,6 +46,52 @@ class KmeansParameters:
     sync: bool = True
 
 
+@dataclass
+class CodebookParams:
+    dim: int
+    codebook_size: int
+    num_codebooks: int = 1
+    initialization_by_kmeans: bool = False
+    kmeans_params: KmeansParameters = None
+    decay: float = 0.8
+    eps_for_smoothing: float = 1e-5
+    threshold_ema_dead_code: int = 2
+    reset_cluster_size: int = None
+    use_ddp: bool = False
+    distributed_replace_codes: bool = True
+    learnable_codebook: bool = False
+    gumbel_sample: Callable = gumbel_sample
+    sample_codebook_temp: float = 1.0
+    ema_update: bool = True
+
+
+@dataclass
+class EuclideanCodebookParams(CodebookParams):
+    """A dataclass which wraps all parameters necessary for EuclideanCodebook."""
+
+    use_affine: bool = False
+    affine_params: AffineParameters = None
+
+
+@dataclass
+class CosineSimCodebookParams:
+    dim: int
+    codebook_size: int
+    num_codebooks: int = 1
+    initialization_by_kmeans: bool = False
+    kmeans_params: KmeansParameters = None
+    decay: float = 0.8
+    eps_for_smoothing: float = 1e-5
+    threshold_ema_dead_code: int = 2
+    reset_cluster_size: int = None
+    use_ddp: bool = False
+    distributed_replace_codes: bool = True
+    learnable_codebook: bool = False
+    gumbel_sample: Callable = gumbel_sample
+    sample_codebook_temp: float = 1.0
+    ema_update: bool = True
+
+
 class EuclideanCodebook(Module):
     def __init__(
         self,
@@ -53,17 +100,17 @@ class EuclideanCodebook(Module):
         num_codebooks=1,
         initialization_by_kmeans: bool = False,
         kmeans_params: KmeansParameters = None,
-        decay=0.8,
-        eps_for_smoothing=1e-5,
-        threshold_ema_dead_code=2,
-        reset_cluster_size=None,
-        use_ddp=False,
-        distributed_replace_codes=True,
-        learnable_codebook=False,
-        gumbel_sample=gumbel_sample,
-        sample_codebook_temp=1.0,
-        ema_update=True,
-        use_affine=False,
+        decay: float = 0.8,
+        eps_for_smoothing: float = 1e-5,
+        threshold_ema_dead_code: int = 2,
+        reset_cluster_size: int = None,
+        use_ddp: bool = False,
+        distributed_replace_codes: bool = True,
+        learnable_codebook: bool = False,
+        gumbel_sample: Callable = gumbel_sample,
+        sample_codebook_temp: float = 1.0,
+        ema_update: bool = True,
+        use_affine: bool = False,
         affine_params: AffineParameters = None,
     ):
         super().__init__()
@@ -372,21 +419,21 @@ class EuclideanCodebook(Module):
 class CosineSimCodebook(Module):
     def __init__(
         self,
-        dim,
-        codebook_size,
-        num_codebooks=1,
-        initialization_by_kmeans=False,
+        dim: int,
+        codebook_size: int,
+        num_codebooks: int = 1,
+        initialization_by_kmeans: bool = False,
         kmeans_params: KmeansParameters = None,
-        decay=0.8,
-        eps_for_smoothing=1e-5,
-        threshold_ema_dead_code=2,
-        reset_cluster_size=None,
-        use_ddp=False,
-        distributed_replace_codes=True,
-        learnable_codebook=False,
-        gumbel_sample=gumbel_sample,
-        sample_codebook_temp=1.0,
-        ema_update=True,
+        decay: float = 0.8,
+        eps_for_smoothing: float = 1e-5,
+        threshold_ema_dead_code: int = 2,
+        reset_cluster_size: int = None,
+        use_ddp: bool = False,
+        distributed_replace_codes: bool = True,
+        learnable_codebook: bool = False,
+        gumbel_sample: Callable = gumbel_sample,
+        sample_codebook_temp: float = 1.0,
+        ema_update: bool = True,
     ):
         super().__init__()
         self.transform_input = l2norm
