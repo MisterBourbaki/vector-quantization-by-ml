@@ -1,5 +1,4 @@
 from collections import namedtuple
-from functools import partial
 from typing import Callable
 
 import torch
@@ -9,14 +8,19 @@ from torch import nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.codebooks import CosineSimCodebook, EuclideanCodebook
+from vector_quantize_pytorch.codebooks import (
+    AffineParameters,
+    CodebookParams,
+    CosineSimCodebook,
+    EuclideanCodebook,
+    GumbelParams,
+)
 from vector_quantize_pytorch.utils.distributed import (
     is_distributed,
 )
 from vector_quantize_pytorch.utils.general import (
     entropy,
     exists,
-    gumbel_sample,
     identity,
     unpack_one,
 )
@@ -40,20 +44,13 @@ class VectorQuantize(Module):
         self,
         dim,
         codebook_size,
+        codebook_params: CodebookParams,
         codebook_dim=None,
         heads=1,
         separate_codebook_per_head=False,
-        decay=0.8,
-        eps=1e-5,
-        freeze_codebook=False,
-        initialization_by_kmeans=False,
-        kmeans_iters=10,
-        sync_kmeans=True,
         use_cosine_sim=False,
         layernorm_after_project_in=False,  # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
-        threshold_ema_dead_code=0,
         channel_last=True,
-        # accept_image_fmap=False,
         commitment_weight=1.0,
         commitment_use_cross_entropy_loss=False,
         orthogonal_reg_weight=0.0,
@@ -61,21 +58,18 @@ class VectorQuantize(Module):
         orthogonal_reg_max_codes=None,
         codebook_diversity_loss_weight=0.0,
         codebook_diversity_temperature=100.0,
-        stochastic_sample_codes=False,
-        sample_codebook_temp=1.0,
-        straight_through=False,
+        # stochastic_sample_codes=False,
+        # sample_codebook_temp=1.0,
+        # straight_through=False,
         distributed_replace_codes=True,
-        reinmax=False,  # using reinmax for improved straight-through
+        # reinmax=False,  # using reinmax for improved straight-through
+        gumbel_params: GumbelParams = GumbelParams(),
         sync_codebook=None,
-        sync_affine_param=False,
-        ema_update=True,
-        learnable_codebook=False,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used if using learnable_codebook
-        affine_param=False,
-        affine_param_batch_decay=0.99,
-        affine_param_codebook_decay=0.9,
+        use_affine=False,
+        affine_params: AffineParameters = None,
         sync_update_v=0.0,  # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
@@ -83,7 +77,6 @@ class VectorQuantize(Module):
         self.heads = heads
         self.separate_codebook_per_head = separate_codebook_per_head
 
-        # codebook_dim = default(codebook_dim, dim)
         codebook_dim = codebook_dim if codebook_dim is not None else dim
         codebook_input_dim = codebook_dim * heads
 
@@ -105,13 +98,15 @@ class VectorQuantize(Module):
 
         self.has_projections = requires_projection
 
-        self.eps = eps
+        # self.eps_for_smoothing = eps_for_smoothing
 
         self.has_commitment_loss = commitment_weight > 0.0
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss  # whether to use cross entropy loss to codebook as commitment loss
 
-        self.learnable_codebook = learnable_codebook
+        self.codebook_params = codebook_params
+
+        self.learnable_codebook = codebook_params.learnable_codebook
 
         has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
@@ -125,24 +120,24 @@ class VectorQuantize(Module):
         self.codebook_diversity_loss_weight = codebook_diversity_loss_weight
 
         assert not (
-            ema_update and learnable_codebook
+            codebook_params.ema_update and codebook_params.learnable_codebook
         ), "learnable codebook not compatible with EMA update"
 
         assert 0 <= sync_update_v <= 1.0
         assert not (
-            sync_update_v > 0.0 and not learnable_codebook
+            sync_update_v > 0.0 and not codebook_params.learnable_codebook
         ), "learnable codebook must be turned on"
 
         self.sync_update_v = sync_update_v
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
-        gumbel_sample_fn = partial(
-            gumbel_sample,
-            stochastic=stochastic_sample_codes,
-            reinmax=reinmax,
-            straight_through=straight_through,
-        )
+        # gumbel_sample_fn = partial(
+        #     gumbel_sample,
+        #     stochastic=stochastic_sample_codes,
+        #     reinmax=reinmax,
+        #     straight_through=straight_through,
+        # )
 
         if not exists(sync_codebook):
             sync_codebook = is_distributed()
@@ -151,30 +146,29 @@ class VectorQuantize(Module):
             dim=codebook_dim,
             num_codebooks=heads if separate_codebook_per_head else 1,
             codebook_size=codebook_size,
-            initialization_by_kmeans=initialization_by_kmeans,
-            kmeans_iters=kmeans_iters,
-            sync_kmeans=sync_kmeans,
-            decay=decay,
-            eps=eps,
-            threshold_ema_dead_code=threshold_ema_dead_code,
+            initialization_by_kmeans=codebook_params.initialization_by_kmeans,
+            kmeans_params=codebook_params.kmeans_params,
+            decay=codebook_params.decay,
+            eps_for_smoothing=codebook_params.eps_for_smoothing,
+            threshold_ema_dead_code=codebook_params.threshold_ema_dead_code,
             use_ddp=sync_codebook,
-            learnable_codebook=has_codebook_orthogonal_loss or learnable_codebook,
-            sample_codebook_temp=sample_codebook_temp,
-            gumbel_sample=gumbel_sample_fn,
-            ema_update=ema_update,
+            learnable_codebook=has_codebook_orthogonal_loss
+            or codebook_params.learnable_codebook,
+            # sample_codebook_temp=sample_codebook_temp,
+            # gumbel_sample=gumbel_sample_fn,
+            gumbel_params=gumbel_params,
+            ema_update=codebook_params.ema_update,
             distributed_replace_codes=distributed_replace_codes,
         )
 
-        if affine_param:
+        if use_affine:
             assert (
                 not use_cosine_sim
             ), "affine param is only compatible with euclidean codebook"
             codebook_kwargs = dict(
                 **codebook_kwargs,
-                affine_param=True,
-                sync_affine_param=sync_affine_param,
-                affine_param_batch_decay=affine_param_batch_decay,
-                affine_param_codebook_decay=affine_param_codebook_decay,
+                use_affine=True,
+                affine_params=affine_params,
             )
 
         self._codebook = codebook_class(**codebook_kwargs)
@@ -187,7 +181,6 @@ class VectorQuantize(Module):
 
         self.codebook_size = codebook_size
 
-        # self.accept_image_fmap = accept_image_fmap
         self.channel_last = channel_last
 
         self.register_buffer("zero", torch.tensor(0.0), persistent=False)
@@ -215,7 +208,6 @@ class VectorQuantize(Module):
         if not is_multiheaded:
             codes = codebook[indices]
         else:
-            # indices, ps = pack_one(indices, "b * h")
             indices, ps = pack([indices], "b * h")
             indices = rearrange(indices, "b n h -> b h n")
 
@@ -240,7 +232,7 @@ class VectorQuantize(Module):
         x,
         indices=None,
         mask=None,
-        sample_codebook_temp=None,
+        # sample_codebook_temp=None,
         freeze_codebook=False,
         return_loss_breakdown=False,
     ):
@@ -260,7 +252,6 @@ class VectorQuantize(Module):
             exists(indices),
         )
 
-        # need_transpose = not self.channel_last and not self.accept_image_fmap
         should_inplace_optimize = exists(self.in_place_codebook_optimizer)
 
         is_img_or_video = x.ndim >= 4
@@ -268,18 +259,7 @@ class VectorQuantize(Module):
         if not self.channel_last:
             x = rearrange(x, "b d ... -> b ... d")
         if is_img_or_video:
-            # x, ps = pack_one(x, "b * d")
             x, ps = pack([x], "b * d")
-        # rearrange inputs
-
-        # if self.accept_image_fmap:
-        #     height, width = x.shape[-2:]
-        #     x = rearrange(x, "b c h w -> b (h w) c")
-
-        # if need_transpose:
-        #     x = rearrange(x, "b d n -> b n d")
-
-        # project input
 
         x = self.project_in(x)
 
@@ -289,8 +269,6 @@ class VectorQuantize(Module):
             ein_rhs_eq = "h b n d" if self.separate_codebook_per_head else "1 (b h) n d"
             x = rearrange(x, f"b n (h d) -> {ein_rhs_eq}", h=heads)
 
-        # x = self.project_in(x)
-
         # l2norm for cosine sim, otherwise identity
 
         x = self._codebook.transform_input(x)
@@ -298,7 +276,7 @@ class VectorQuantize(Module):
         # codebook forward kwargs
 
         codebook_forward_kwargs = dict(
-            sample_codebook_temp=sample_codebook_temp,
+            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
         )
@@ -395,18 +373,10 @@ class VectorQuantize(Module):
             else:
                 embed_ind = rearrange(embed_ind, "1 (b h) n -> b n h", h=heads)
 
-        # if is_img_or_video:
-        #     x = unpack_one(x, ps, "b * d")
-        #     indices = unpack_one(indices, ps, "b * c")
-
         if is_img_or_video and not is_multiheaded:
             embed_ind = unpack_one(embed_ind, ps, "b *")
         elif is_img_or_video and is_multiheaded:
             embed_ind = unpack_one(embed_ind, ps, "b * h")
-        # if self.accept_image_fmap:
-        #     embed_ind = rearrange(
-        #         embed_ind, "b (h w) ... -> b h w ...", h=height, w=width
-        #     )
 
         if only_one:
             embed_ind = rearrange(embed_ind, "b 1 ... -> b ...")
@@ -500,14 +470,8 @@ class VectorQuantize(Module):
 
         # rearrange quantized embeddings
 
-        # if need_transpose:
-        #     quantize = rearrange(quantize, "b n d -> b d n")
-
-        # if self.accept_image_fmap:
-        #     quantize = rearrange(quantize, "b (h w) c -> b c h w", h=height, w=width)
         if is_img_or_video:
             quantize = unpack_one(quantize, ps, "b * d")
-            # indices = unpack_one(indices, ps, "b * c")
         if not self.channel_last:
             quantize = rearrange(quantize, "b ... d -> b d ...")
         if only_one:

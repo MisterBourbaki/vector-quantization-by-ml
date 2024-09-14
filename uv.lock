@@ -1972,7 +1972,7 @@ wheels = [
 ]
 
 [[package]]
-name = "vector-quantize-pytorch"
+name = "vector-quantization-by-ml"
 version = "1.16.1"
 source = { editable = "." }
 dependencies = [

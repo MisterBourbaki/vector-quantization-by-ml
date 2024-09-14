@@ -144,7 +144,7 @@ class ResidualVQ(Module):
         mask=None,
         indices: Tensor | list[Tensor] | None = None,
         return_all_codes=False,
-        sample_codebook_temp=None,
+        # sample_codebook_temp=None,
         freeze_codebook=False,
         rand_quantize_dropout_fixed_seed=None,
     ):
@@ -234,7 +234,7 @@ class ResidualVQ(Module):
                 residual,
                 mask=mask,
                 indices=layer_indices,
-                sample_codebook_temp=sample_codebook_temp,
+                # sample_codebook_temp=sample_codebook_temp,
                 freeze_codebook=freeze_codebook,
             )
 
@@ -324,7 +324,7 @@ class GroupedResidualVQ(Module):
         x,
         indices=None,
         return_all_codes=False,
-        sample_codebook_temp=None,
+        # sample_codebook_temp=None,
         freeze_codebook=False,
         mask=None,
     ):
@@ -343,7 +343,7 @@ class GroupedResidualVQ(Module):
 
         forward_kwargs = dict(
             return_all_codes=return_all_codes,
-            sample_codebook_temp=sample_codebook_temp,
+            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
             rand_quantize_dropout_fixed_seed=random.randint(0, int(1e7)),
