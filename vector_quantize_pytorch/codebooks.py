@@ -1,4 +1,4 @@
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from functools import partial
 
 import torch
@@ -70,7 +70,7 @@ class CodebookParams:
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
     # gumbel_sample: Callable = gumbel_sample
-    gumbel_params: GumbelParams = GumbelParams()
+    gumbel_params: GumbelParams = field(default_factory=GumbelParams)
     # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
@@ -98,7 +98,7 @@ class CosineSimCodebookParams:
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
     # gumbel_sample: Callable = gumbel_sample
-    gumbel_params: GumbelParams = GumbelParams()
+    gumbel_params: GumbelParams = field(default_factory=GumbelParams)
     # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
@@ -148,6 +148,9 @@ class EuclideanCodebook(Module):
 
         # assert callable(gumbel_sample)
         # self.gumbel_sample = gumbel_sample
+        print(
+            f"DEBUG ::: gumbel_params is of type {type(gumbel_params)} and its contents are {gumbel_params}"
+        )
         self.sample_fn_training = partial(gumbel_sample, **asdict(gumbel_params))
         # self.sample_codebook_temp = sample_codebook_temp
         # gumbel_params_val = gumbel_params
