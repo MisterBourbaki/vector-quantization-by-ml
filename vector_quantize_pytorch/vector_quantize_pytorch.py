@@ -1,5 +1,4 @@
 from collections import namedtuple
-from functools import partial
 from typing import Callable
 
 import torch
@@ -14,6 +13,7 @@ from vector_quantize_pytorch.codebooks import (
     CodebookParams,
     CosineSimCodebook,
     EuclideanCodebook,
+    GumbelParams,
 )
 from vector_quantize_pytorch.utils.distributed import (
     is_distributed,
@@ -21,7 +21,6 @@ from vector_quantize_pytorch.utils.distributed import (
 from vector_quantize_pytorch.utils.general import (
     entropy,
     exists,
-    gumbel_sample,
     identity,
     unpack_one,
 )
@@ -59,11 +58,12 @@ class VectorQuantize(Module):
         orthogonal_reg_max_codes=None,
         codebook_diversity_loss_weight=0.0,
         codebook_diversity_temperature=100.0,
-        stochastic_sample_codes=False,
-        sample_codebook_temp=1.0,
-        straight_through=False,
+        # stochastic_sample_codes=False,
+        # sample_codebook_temp=1.0,
+        # straight_through=False,
         distributed_replace_codes=True,
-        reinmax=False,  # using reinmax for improved straight-through
+        # reinmax=False,  # using reinmax for improved straight-through
+        gumbel_params: GumbelParams = GumbelParams(),
         sync_codebook=None,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
@@ -104,7 +104,7 @@ class VectorQuantize(Module):
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss  # whether to use cross entropy loss to codebook as commitment loss
 
-        # self.codebook_params = codebook_params
+        self.codebook_params = codebook_params
 
         self.learnable_codebook = codebook_params.learnable_codebook
 
@@ -132,12 +132,12 @@ class VectorQuantize(Module):
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
-        gumbel_sample_fn = partial(
-            gumbel_sample,
-            stochastic=stochastic_sample_codes,
-            reinmax=reinmax,
-            straight_through=straight_through,
-        )
+        # gumbel_sample_fn = partial(
+        #     gumbel_sample,
+        #     stochastic=stochastic_sample_codes,
+        #     reinmax=reinmax,
+        #     straight_through=straight_through,
+        # )
 
         if not exists(sync_codebook):
             sync_codebook = is_distributed()
@@ -154,8 +154,9 @@ class VectorQuantize(Module):
             use_ddp=sync_codebook,
             learnable_codebook=has_codebook_orthogonal_loss
             or codebook_params.learnable_codebook,
-            sample_codebook_temp=sample_codebook_temp,
-            gumbel_sample=gumbel_sample_fn,
+            # sample_codebook_temp=sample_codebook_temp,
+            # gumbel_sample=gumbel_sample_fn,
+            gumbel_params=gumbel_params,
             ema_update=codebook_params.ema_update,
             distributed_replace_codes=distributed_replace_codes,
         )
@@ -231,7 +232,7 @@ class VectorQuantize(Module):
         x,
         indices=None,
         mask=None,
-        sample_codebook_temp=None,
+        # sample_codebook_temp=None,
         freeze_codebook=False,
         return_loss_breakdown=False,
     ):
@@ -275,7 +276,7 @@ class VectorQuantize(Module):
         # codebook forward kwargs
 
         codebook_forward_kwargs = dict(
-            sample_codebook_temp=sample_codebook_temp,
+            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
         )

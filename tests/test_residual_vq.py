@@ -1,6 +1,10 @@
 import torch
 
-from vector_quantize_pytorch.codebooks import CodebookParams, KmeansParameters
+from vector_quantize_pytorch.codebooks import (
+    CodebookParams,
+    GumbelParams,
+    KmeansParameters,
+)
 from vector_quantize_pytorch.residual_vq import GroupedResidualVQ, ResidualVQ
 
 
@@ -37,13 +41,15 @@ class TestResidualVQ2:
     num_quantizers = 3
     codebook_size = 2**5
     codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
+    gumbel_params = GumbelParams(stochastic=True)
 
     quantizer = ResidualVQ(
         dim=dim,
         num_quantizers=num_quantizers,
         codebook_size=2**5,
-        stochastic_sample_codes=True,
-        sample_codebook_temp=0.1,  # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
+        gumbel_params=gumbel_params,
+        # stochastic_sample_codes=True,
+        # sample_codebook_temp=0.1,  # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
         shared_codebook=True,  # whether to share the codebooks for all quantizers or not
         codebook_params=codebook_params,
     )

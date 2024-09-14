@@ -1,6 +1,5 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from functools import partial
-from typing import Callable
 
 import torch
 from einops import rearrange, reduce, repeat
@@ -47,6 +46,16 @@ class KmeansParameters:
 
 
 @dataclass
+class GumbelParams:
+    temperature: float = 1.0
+    stochastic: bool = False
+    reinmax: bool = False
+    straight_through: bool = False
+    dim: int = -1
+    training: bool = True
+
+
+@dataclass
 class CodebookParams:
     dim: int
     codebook_size: int
@@ -60,8 +69,9 @@ class CodebookParams:
     use_ddp: bool = False
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
-    gumbel_sample: Callable = gumbel_sample
-    sample_codebook_temp: float = 1.0
+    # gumbel_sample: Callable = gumbel_sample
+    gumbel_params: GumbelParams = GumbelParams()
+    # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
 
@@ -87,8 +97,9 @@ class CosineSimCodebookParams:
     use_ddp: bool = False
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
-    gumbel_sample: Callable = gumbel_sample
-    sample_codebook_temp: float = 1.0
+    # gumbel_sample: Callable = gumbel_sample
+    gumbel_params: GumbelParams = GumbelParams()
+    # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
 
@@ -107,8 +118,9 @@ class EuclideanCodebook(Module):
         use_ddp: bool = False,
         distributed_replace_codes: bool = True,
         learnable_codebook: bool = False,
-        gumbel_sample: Callable = gumbel_sample,
-        sample_codebook_temp: float = 1.0,
+        # gumbel_sample: Callable = gumbel_sample
+        gumbel_params: GumbelParams = GumbelParams(),
+        # sample_codebook_temp: float = 1.0,
         ema_update: bool = True,
         use_affine: bool = False,
         affine_params: AffineParameters = None,
@@ -134,9 +146,15 @@ class EuclideanCodebook(Module):
             else threshold_ema_dead_code
         )
 
-        assert callable(gumbel_sample)
-        self.gumbel_sample = gumbel_sample
-        self.sample_codebook_temp = sample_codebook_temp
+        # assert callable(gumbel_sample)
+        # self.gumbel_sample = gumbel_sample
+        self.sample_fn_training = partial(gumbel_sample, **asdict(gumbel_params))
+        # self.sample_codebook_temp = sample_codebook_temp
+        # gumbel_params_val = gumbel_params
+        # gumbel_params_val.trinaing = False
+        self.sample_fn_val = partial(
+            gumbel_sample, **asdict(replace(gumbel_params, training=False))
+        )
 
         assert not (
             use_ddp and num_codebooks > 1 and initialization_by_kmeans
@@ -325,13 +343,9 @@ class EuclideanCodebook(Module):
         self.replace(batch_samples, batch_mask=expired_codes)
 
     @autocast(enabled=False)
-    def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
+    def forward(self, x, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = (
-            sample_codebook_temp
-            if sample_codebook_temp is not None
-            else self.sample_codebook_temp
-        )
+
         x = x.float()
 
         if needs_codebook_dim:
@@ -366,8 +380,8 @@ class EuclideanCodebook(Module):
 
         dist = -cdist(flatten, embeddings)
 
-        embed_ind, embed_onehot = self.gumbel_sample(
-            dist, dim=-1, temperature=sample_codebook_temp, training=self.training
+        embed_ind, embed_onehot = self.sample_fn_training(
+            dist,
         )
 
         embed_ind = unpack_one(embed_ind, ps, "h *")
@@ -431,8 +445,9 @@ class CosineSimCodebook(Module):
         use_ddp: bool = False,
         distributed_replace_codes: bool = True,
         learnable_codebook: bool = False,
-        gumbel_sample: Callable = gumbel_sample,
-        sample_codebook_temp: float = 1.0,
+        # gumbel_sample: Callable = gumbel_sample,
+        gumbel_params: GumbelParams = GumbelParams(),
+        # sample_codebook_temp: float = 1.0,
         ema_update: bool = True,
     ):
         super().__init__()
@@ -458,9 +473,13 @@ class CosineSimCodebook(Module):
             else threshold_ema_dead_code
         )
 
-        assert callable(gumbel_sample)
-        self.gumbel_sample = gumbel_sample
-        self.sample_codebook_temp = sample_codebook_temp
+        # assert callable(gumbel_sample)
+        # self.gumbel_sample = gumbel_sample
+        self.sample_fn_training = partial(gumbel_sample, **asdict(gumbel_params))
+        # self.sample_codebook_temp = sample_codebook_temp
+        gumbel_params_val = gumbel_params
+        gumbel_params_val.trinaing = False
+        self.sample_fn_val = partial(gumbel_sample, **asdict(gumbel_params_val))
 
         self.sample_fn = (
             sample_vectors_distributed
@@ -540,13 +559,13 @@ class CosineSimCodebook(Module):
         self.replace(batch_samples, batch_mask=expired_codes)
 
     @autocast(enabled=False)
-    def forward(self, x, sample_codebook_temp=None, mask=None, freeze_codebook=False):
+    def forward(self, x, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        sample_codebook_temp = (
-            sample_codebook_temp
-            if sample_codebook_temp is not None
-            else self.sample_codebook_temp
-        )
+        # sample_codebook_temp = (
+        #     sample_codebook_temp
+        #     if sample_codebook_temp is not None
+        #     else self.sample_codebook_temp
+        # )
 
         x = x.float()
 
@@ -573,8 +592,8 @@ class CosineSimCodebook(Module):
 
         dist = einsum("h n d, h c d -> h n c", flatten, embeddings)
 
-        embed_ind, embed_onehot = self.gumbel_sample(
-            dist, dim=-1, temperature=sample_codebook_temp, training=self.training
+        embed_ind, embed_onehot = self.sample_fn_training(
+            dist,
         )
         embed_ind = unpack_one(embed_ind, ps, "h *")
 
