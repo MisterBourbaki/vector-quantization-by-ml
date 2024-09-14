@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+
+
+## [Version 1.16.3]
+
+* Introduce dataclass GumbelParams for the sampling function (here, various kinds of Gumbel sampling).
+* Remove corresponding old parameters/attributes, gathered now into the new dataclass.
+* Remove the creation of the sampling function as a method in VQ, into the codebook itself.
+* Remove the definition of sample_codebook_temp inside the forward method: there is no reason now to do so.
+* Remove sample_codebook_temp as a parameter of the forward method in both VQ and Codebook classes.
+* Change accordingly the ResidualVQ class.
+
+## [Version 1.16.2]
+
+* Introduce dataclasses KmeansParams and AffineParams to gather parameters useful for only one feature.
+* Change VQ and codeooks accordingly. This allow for better readibility (dataclasses can be documented) and reduce the huge number of parameters for VQ and codebooks classes.
+* Introduce dataclasses for Codebooks Parameters. Use in VQ as a proxy for now, as the definition/declaration of both dim/codebook_dim and codebook_size is a bit more intricate.
+
 ## [Version 1.16.1]
 
 * Replace the ad-hoc 'cdist' function by the built-in torch.cdist function.
