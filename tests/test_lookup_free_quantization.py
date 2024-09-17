@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from vector_quantize_pytorch.lookup_free_quantization import LFQ
+from vector_quantization.lookup_free_quantization import LFQ
 
 
 @pytest.fixture

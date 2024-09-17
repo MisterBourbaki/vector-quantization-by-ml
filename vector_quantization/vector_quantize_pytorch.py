@@ -8,23 +8,23 @@ from torch import nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.codebooks import (
+from vector_quantization.codebooks import (
     AffineParameters,
     CodebookParams,
     CosineSimCodebook,
     EuclideanCodebook,
     GumbelParams,
 )
-from vector_quantize_pytorch.utils.distributed import (
+from vector_quantization.utils.distributed import (
     is_distributed,
 )
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     entropy,
     exists,
     identity,
     unpack_one,
 )
-from vector_quantize_pytorch.utils.losses import orthogonal_loss_fn
+from vector_quantization.utils.losses import orthogonal_loss_fn
 
 LossBreakdown = namedtuple(
     "LossBreakdown",

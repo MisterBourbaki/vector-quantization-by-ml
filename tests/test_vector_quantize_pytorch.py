@@ -1,7 +1,7 @@
 import torch
 
-from vector_quantize_pytorch import VectorQuantize
-from vector_quantize_pytorch.codebooks import CodebookParams, KmeansParameters
+from vector_quantization import VectorQuantize
+from vector_quantization.codebooks import CodebookParams, KmeansParameters
 
 
 class TestVectorQuantizer:

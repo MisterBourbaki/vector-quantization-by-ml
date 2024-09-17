@@ -1,11 +1,11 @@
 import torch
 
-from vector_quantize_pytorch.codebooks import (
+from vector_quantization.codebooks import (
     CodebookParams,
     GumbelParams,
     KmeansParameters,
 )
-from vector_quantize_pytorch.residual_vq import GroupedResidualVQ, ResidualVQ
+from vector_quantization.residual_vq import GroupedResidualVQ, ResidualVQ
 
 
 class TestResidualVQ:

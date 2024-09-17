@@ -12,8 +12,8 @@ from einx import get_at
 from torch import Tensor, nn
 from torch.nn import Module, ModuleList
 
-from vector_quantize_pytorch.utils.general import exists, round_up_multiple
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
+from vector_quantization.utils.general import exists, round_up_multiple
+from vector_quantization.vector_quantize_pytorch import VectorQuantize
 
 # distributed helpers
 

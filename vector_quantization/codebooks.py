@@ -7,11 +7,11 @@ from torch import cdist, distributed, einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.utils.distributed import (
+from vector_quantization.utils.distributed import (
     maybe_distributed_mean,
     sample_vectors_distributed,
 )
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     batched_embedding,
     batched_sample_vectors,
     ema_inplace,
@@ -24,8 +24,8 @@ from vector_quantize_pytorch.utils.general import (
     uniform_init,
     unpack_one,
 )
-from vector_quantize_pytorch.utils.kmeans import kmeans
-from vector_quantize_pytorch.utils.losses import l2norm
+from vector_quantization.utils.kmeans import kmeans
+from vector_quantization.utils.losses import l2norm
 
 
 @dataclass

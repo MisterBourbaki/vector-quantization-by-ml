@@ -17,16 +17,16 @@ from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.utils.distributed import (
+from vector_quantization.utils.distributed import (
     maybe_distributed_mean,
 )
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     entropy,
     exists,
     identity,
     unpack_one,
 )
-from vector_quantize_pytorch.utils.losses import l2norm
+from vector_quantization.utils.losses import l2norm
 
 Return = namedtuple("Return", ["quantized", "indices", "entropy_aux_loss"])
 

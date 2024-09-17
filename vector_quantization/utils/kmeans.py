@@ -5,8 +5,8 @@ from einops import rearrange, repeat
 from torch import Tensor, cdist
 from torch.nn import Identity
 
-from vector_quantize_pytorch.utils.general import batched_sample_vectors, noop
-from vector_quantize_pytorch.utils.losses import l2norm
+from vector_quantization.utils.general import batched_sample_vectors, noop
+from vector_quantization.utils.losses import l2norm
 
 
 def batched_bincount(batch_labels: Tensor, minlength: int) -> Tensor:

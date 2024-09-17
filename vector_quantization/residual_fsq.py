@@ -8,8 +8,8 @@ from torch import nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.finite_scalar_quantization import FSQ
-from vector_quantize_pytorch.utils.general import exists, round_up_multiple
+from vector_quantization.finite_scalar_quantization import FSQ
+from vector_quantization.utils.general import exists, round_up_multiple
 
 
 def first(list_):

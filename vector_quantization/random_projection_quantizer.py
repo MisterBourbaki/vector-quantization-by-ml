@@ -2,8 +2,8 @@ import torch
 from einops import pack
 from torch import einsum, nn
 
-from vector_quantize_pytorch.utils.general import exists
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
+from vector_quantization.utils.general import exists
+from vector_quantization.vector_quantize_pytorch import VectorQuantize
 
 
 class RandomProjectionQuantizer(nn.Module):
