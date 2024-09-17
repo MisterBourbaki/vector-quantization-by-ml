@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [Version 1.17.0]
 
 * Create a new, meta Codebook class which can be used to create both EuclideanCodebook and CosineSimCodebook. Allows for further types of Codebooks.
 * Replace the "distance" function by similarity function, defined through the 'use_cosine_sim' boolean. May be replaced by an Enum later on.
