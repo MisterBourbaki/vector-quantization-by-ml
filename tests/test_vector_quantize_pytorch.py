@@ -60,7 +60,6 @@ class TestVectorQuantizerCosine:
     codebook_size = 2**5
     codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
     quantizer = VectorQuantize(
-        # dim=256,
         dim=4,
         codebook_size=2**5,  # codebook size
         use_cosine_sim=True,
