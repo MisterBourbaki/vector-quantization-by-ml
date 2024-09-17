@@ -1,4 +1,5 @@
 from collections import namedtuple
+from dataclasses import asdict, replace
 from typing import Callable
 
 import torch
@@ -9,11 +10,8 @@ from torch.nn import Module
 from torch.optim import Optimizer
 
 from vector_quantization.codebooks import (
-    AffineParameters,
+    Codebook,
     CodebookParams,
-    CosineSimCodebook,
-    EuclideanCodebook,
-    GumbelParams,
 )
 from vector_quantization.utils.distributed import (
     is_distributed,
@@ -41,12 +39,10 @@ class VectorQuantize(Module):
     def __init__(
         self,
         dim,
-        codebook_size,
         codebook_params: CodebookParams,
         codebook_dim=None,
         heads=1,
         separate_codebook_per_head=False,
-        use_cosine_sim=False,
         layernorm_after_project_in=False,  # proposed by @SaltyChtao here https://github.com/lucidrains/vector-quantize-pytorch/issues/26#issuecomment-1324711561
         channel_last=True,
         commitment_weight=1.0,
@@ -56,14 +52,10 @@ class VectorQuantize(Module):
         orthogonal_reg_max_codes=None,
         codebook_diversity_loss_weight=0.0,
         codebook_diversity_temperature=100.0,
-        distributed_replace_codes=True,
-        gumbel_params: GumbelParams = GumbelParams(),
         sync_codebook=None,
         in_place_codebook_optimizer: Callable[
             ..., Optimizer
         ] = None,  # Optimizer used if using learnable_codebook
-        use_affine=False,
-        affine_params: AffineParameters = None,
         sync_update_v=0.0,  # the v that controls optimistic vs pessimistic update for synchronous update rule (21) https://minyoungg.github.io/vqtorch/assets/draft_050523.pdf
     ):
         super().__init__()
@@ -96,11 +88,22 @@ class VectorQuantize(Module):
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss  # whether to use cross entropy loss to codebook as commitment loss
 
-        self.codebook_params = codebook_params
+        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.0
+
+        if not exists(sync_codebook):
+            sync_codebook = is_distributed()
+
+        self.codebook_params = replace(
+            codebook_params,
+            dim=codebook_dim,
+            num_codebooks=heads if separate_codebook_per_head else 1,
+            learnable_codebook=has_codebook_orthogonal_loss
+            or codebook_params.learnable_codebook,
+            use_ddp=sync_codebook,
+        )
 
         self.learnable_codebook = codebook_params.learnable_codebook
 
-        has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
@@ -122,47 +125,13 @@ class VectorQuantize(Module):
 
         self.sync_update_v = sync_update_v
 
-        codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
-
-        if not exists(sync_codebook):
-            sync_codebook = is_distributed()
-
-        codebook_kwargs = dict(
-            dim=codebook_dim,
-            num_codebooks=heads if separate_codebook_per_head else 1,
-            codebook_size=codebook_size,
-            initialization_by_kmeans=codebook_params.initialization_by_kmeans,
-            kmeans_params=codebook_params.kmeans_params,
-            decay=codebook_params.decay,
-            eps_for_smoothing=codebook_params.eps_for_smoothing,
-            threshold_ema_dead_code=codebook_params.threshold_ema_dead_code,
-            use_ddp=sync_codebook,
-            learnable_codebook=has_codebook_orthogonal_loss
-            or codebook_params.learnable_codebook,
-            gumbel_params=gumbel_params,
-            ema_update=codebook_params.ema_update,
-            distributed_replace_codes=distributed_replace_codes,
-        )
-
-        if use_affine:
-            assert (
-                not use_cosine_sim
-            ), "affine param is only compatible with euclidean codebook"
-            codebook_kwargs = dict(
-                **codebook_kwargs,
-                use_affine=True,
-                affine_params=affine_params,
-            )
-
-        self._codebook = codebook_class(**codebook_kwargs)
+        self._codebook = Codebook(**asdict(self.codebook_params))
 
         self.in_place_codebook_optimizer = (
             in_place_codebook_optimizer(self._codebook.parameters())
             if exists(in_place_codebook_optimizer)
             else None
         )
-
-        self.codebook_size = codebook_size
 
         self.channel_last = channel_last
 
@@ -251,7 +220,6 @@ class VectorQuantize(Module):
 
         x = self._codebook.transform_input(x)
         codebook_forward_kwargs = dict(
-            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
         )
