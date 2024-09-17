@@ -111,8 +111,6 @@ def kmeans(
         new_centroids = new_centroids / rearrange(bins_min_clamped, "... -> ... 1")
         all_reduce_fn(new_centroids)
 
-        # if use_cosine_sim:
-        #     new_centroids = l2norm(new_centroids)
         new_centroids = reg_fn(new_centroids)
 
         centroids = torch.where(
