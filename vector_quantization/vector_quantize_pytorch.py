@@ -104,7 +104,6 @@ class VectorQuantize(Module):
 
         self.learnable_codebook = codebook_params.learnable_codebook
 
-        # has_codebook_orthogonal_loss = orthogonal_reg_weight > 0.0
         self.has_codebook_orthogonal_loss = has_codebook_orthogonal_loss
         self.orthogonal_reg_weight = orthogonal_reg_weight
         self.orthogonal_reg_active_codes_only = orthogonal_reg_active_codes_only
@@ -126,41 +125,6 @@ class VectorQuantize(Module):
 
         self.sync_update_v = sync_update_v
 
-        # codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
-
-        # # if not exists(sync_codebook):
-        # #     sync_codebook = is_distributed()
-
-        # codebook_kwargs = dict(
-        #     dim=codebook_dim,
-        #     num_codebooks=heads if separate_codebook_per_head else 1,
-        #     # codebook_size=codebook_size,
-        #     # initialization_by_kmeans=codebook_params.initialization_by_kmeans,
-        #     # kmeans_params=codebook_params.kmeans_params,
-        #     # decay=codebook_params.decay,
-        #     # eps_for_smoothing=codebook_params.eps_for_smoothing,
-        #     # threshold_ema_dead_code=codebook_params.threshold_ema_dead_code,
-        #     use_ddp=sync_codebook,
-        #     learnable_codebook=has_codebook_orthogonal_loss
-        #     or codebook_params.learnable_codebook,
-        #     gumbel_params=gumbel_params,
-        #     # ema_update=codebook_params.ema_update,
-        #     distributed_replace_codes=distributed_replace_codes,
-        #     **asdict(self.codebook_params),
-        # )
-
-        # if use_affine:
-        #     assert (
-        #         not use_cosine_sim
-        #     ), "affine param is only compatible with euclidean codebook"
-        #     codebook_kwargs = dict(
-        #         **codebook_kwargs,
-        #         use_affine=True,
-        #         affine_params=affine_params,
-        #     )
-
-        # self._codebook = codebook_class(**codebook_kwargs)
-
         self._codebook = Codebook(**asdict(self.codebook_params))
 
         self.in_place_codebook_optimizer = (
@@ -168,8 +132,6 @@ class VectorQuantize(Module):
             if exists(in_place_codebook_optimizer)
             else None
         )
-
-        # self.codebook_size = codebook_size
 
         self.channel_last = channel_last
 
@@ -258,7 +220,6 @@ class VectorQuantize(Module):
 
         x = self._codebook.transform_input(x)
         codebook_forward_kwargs = dict(
-            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
         )
