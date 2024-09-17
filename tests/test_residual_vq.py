@@ -17,7 +17,7 @@ class TestResidualVQ:
     quantizer = ResidualVQ(
         dim=dim,
         num_quantizers=num_quantizers,  # specify number of quantizers
-        codebook_size=2**5,  # codebook size
+        # codebook_size=2**5,  # codebook size
         codebook_params=codebook_params,
     )
 
@@ -40,14 +40,18 @@ class TestResidualVQ2:
     dim = 4
     num_quantizers = 3
     codebook_size = 2**5
-    codebook_params = CodebookParams(dim=dim, codebook_size=codebook_size)
-    gumbel_params = GumbelParams(stochastic=True)
+    codebook_params = CodebookParams(
+        dim=dim,
+        codebook_size=codebook_size,
+        gumbel_params=GumbelParams(stochastic=True),
+    )
+    # gumbel_params = GumbelParams(stochastic=True)
 
     quantizer = ResidualVQ(
         dim=dim,
         num_quantizers=num_quantizers,
-        codebook_size=2**5,
-        gumbel_params=gumbel_params,
+        # codebook_size=2**5,
+        # gumbel_params=gumbel_params,
         # stochastic_sample_codes=True,
         # sample_codebook_temp=0.1,  # temperature for stochastically sampling codes, 0 would be equivalent to non-stochastic
         shared_codebook=True,  # whether to share the codebooks for all quantizers or not
@@ -84,7 +88,7 @@ class TestResidualVQ3:
     quantizer = ResidualVQ(
         dim=dim,
         num_quantizers=num_quantizers,
-        codebook_size=2**5,
+        # codebook_size=2**5,
         codebook_params=codebook_params,
         # initialization_by_kmeans=True,  # set to True
         # kmeans_iters=10,  # number of kmeans iterations to calculate the centroids for the codebook on init
@@ -116,7 +120,7 @@ class TestGroupedResidualVQ:
         dim=dim,
         num_quantizers=num_quantizers,  # specify number of quantizers
         groups=groups,
-        codebook_size=2**5,  # codebook size
+        # codebook_size=2**5,  # codebook size
         codebook_params=codebook_params,
     )
 
@@ -149,7 +153,7 @@ def test_residual_vq3():
 
     quantizer = ResidualVQ(
         dim=4,
-        codebook_size=2**5,
+        # codebook_size=2**5,
         num_quantizers=4,
         codebook_params=codebook_params,
         # initialization_by_kmeans=True,  # set to True
