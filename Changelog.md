@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+* Create a new, meta Codebook class which can be used to create both EuclideanCodebook and CosineSimCodebook. Allows for further types of Codebooks.
+* Replace the "distance" function by similarity function, defined through the 'use_cosine_sim' boolean. May be replaced by an Enum later on.
+* Add weights regularization and transform input as booleans in the parameters of the Codebook.
+* Use fully the parameter codebook_params in VQ to define the Codebook, Cosine or not.
+* Transform gumbel_params and kmeans_params into dict if they are still dataclasses at initialization. This avoid error if the kmeans_params and gumbel_params come from 'asdict'-ification of CodebookParams early on.
+* CHange the tests accordingly.
+* Rename the method 'replace' in Codebook into 'replace_codes' to avoid confusion with 'replace' from Dataclasses library.
 
 
 ## [Version 1.16.3]
