@@ -19,7 +19,7 @@ from torch import nn
 from torch.nn.functional import l1_loss
 
 from examples.data import LitFashionMNIST
-from vector_quantize_pytorch import LFQ
+from vector_quantization import LFQ
 
 seed_everything(1234, workers=True)
 

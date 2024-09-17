@@ -1,6 +1,6 @@
 import torch
 
-from vector_quantize_pytorch.finite_scalar_quantization import FSQ
+from vector_quantization.finite_scalar_quantization import FSQ
 
 
 class TestFSQ:

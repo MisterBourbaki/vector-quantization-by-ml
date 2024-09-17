@@ -7,11 +7,11 @@ from torch import cdist, distributed, einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.utils.distributed import (
+from vector_quantization.utils.distributed import (
     maybe_distributed_mean,
     sample_vectors_distributed,
 )
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     batched_embedding,
     batched_sample_vectors,
     ema_inplace,
@@ -24,8 +24,8 @@ from vector_quantize_pytorch.utils.general import (
     uniform_init,
     unpack_one,
 )
-from vector_quantize_pytorch.utils.kmeans import kmeans
-from vector_quantize_pytorch.utils.losses import l2norm
+from vector_quantization.utils.kmeans import kmeans
+from vector_quantization.utils.losses import l2norm
 
 
 @dataclass
@@ -69,9 +69,7 @@ class CodebookParams:
     use_ddp: bool = False
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
-    # gumbel_sample: Callable = gumbel_sample
     gumbel_params: GumbelParams = field(default_factory=GumbelParams)
-    # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
 
@@ -97,9 +95,7 @@ class CosineSimCodebookParams:
     use_ddp: bool = False
     distributed_replace_codes: bool = True
     learnable_codebook: bool = False
-    # gumbel_sample: Callable = gumbel_sample
     gumbel_params: GumbelParams = field(default_factory=GumbelParams)
-    # sample_codebook_temp: float = 1.0
     ema_update: bool = True
 
 
@@ -118,9 +114,7 @@ class EuclideanCodebook(Module):
         use_ddp: bool = False,
         distributed_replace_codes: bool = True,
         learnable_codebook: bool = False,
-        # gumbel_sample: Callable = gumbel_sample
         gumbel_params: GumbelParams = GumbelParams(),
-        # sample_codebook_temp: float = 1.0,
         ema_update: bool = True,
         use_affine: bool = False,
         affine_params: AffineParameters = None,
@@ -146,15 +140,7 @@ class EuclideanCodebook(Module):
             else threshold_ema_dead_code
         )
 
-        # assert callable(gumbel_sample)
-        # self.gumbel_sample = gumbel_sample
-        print(
-            f"DEBUG ::: gumbel_params is of type {type(gumbel_params)} and its contents are {gumbel_params}"
-        )
         self.sample_fn_training = partial(gumbel_sample, **asdict(gumbel_params))
-        # self.sample_codebook_temp = sample_codebook_temp
-        # gumbel_params_val = gumbel_params
-        # gumbel_params_val.trinaing = False
         self.sample_fn_val = partial(
             gumbel_sample, **asdict(replace(gumbel_params, training=False))
         )
@@ -181,7 +167,6 @@ class EuclideanCodebook(Module):
         )
         self.all_reduce_fn = distributed.all_reduce if use_ddp else noop
 
-        # self.register_buffer("is_initialized", torch.Tensor([not initialization_by_kmeans]))
         self.is_initialized = not initialization_by_kmeans
         self.register_buffer("cluster_size", torch.zeros(num_codebooks, codebook_size))
         self.register_buffer("embed_avg", embeddings.clone())
@@ -224,7 +209,6 @@ class EuclideanCodebook(Module):
         self.embeddings.data.copy_(embeddings)
         self.embed_avg.data.copy_(embed_sum)
         self.cluster_size.data.copy_(cluster_size)
-        # self.is_initialized.data.copy_(torch.Tensor([True]))
 
     @torch.jit.ignore
     def update_with_decay(self, buffer_name, new_value, decay):
@@ -448,9 +432,7 @@ class CosineSimCodebook(Module):
         use_ddp: bool = False,
         distributed_replace_codes: bool = True,
         learnable_codebook: bool = False,
-        # gumbel_sample: Callable = gumbel_sample,
         gumbel_params: GumbelParams = GumbelParams(),
-        # sample_codebook_temp: float = 1.0,
         ema_update: bool = True,
     ):
         super().__init__()
@@ -476,10 +458,7 @@ class CosineSimCodebook(Module):
             else threshold_ema_dead_code
         )
 
-        # assert callable(gumbel_sample)
-        # self.gumbel_sample = gumbel_sample
         self.sample_fn_training = partial(gumbel_sample, **asdict(gumbel_params))
-        # self.sample_codebook_temp = sample_codebook_temp
         gumbel_params_val = gumbel_params
         gumbel_params_val.trinaing = False
         self.sample_fn_val = partial(gumbel_sample, **asdict(gumbel_params_val))
@@ -564,11 +543,6 @@ class CosineSimCodebook(Module):
     @autocast(enabled=False)
     def forward(self, x, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
-        # sample_codebook_temp = (
-        #     sample_codebook_temp
-        #     if sample_codebook_temp is not None
-        #     else self.sample_codebook_temp
-        # )
 
         x = x.float()
 

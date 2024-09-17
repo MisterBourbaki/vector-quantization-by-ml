@@ -69,4 +69,4 @@ pythonpath = [
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["vector_quantize_pytorch"]
+packages = ["vector_quantization"]

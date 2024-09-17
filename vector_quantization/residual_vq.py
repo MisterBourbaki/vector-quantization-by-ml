@@ -12,8 +12,8 @@ from einx import get_at
 from torch import Tensor, nn
 from torch.nn import Module, ModuleList
 
-from vector_quantize_pytorch.utils.general import exists, round_up_multiple
-from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
+from vector_quantization.utils.general import exists, round_up_multiple
+from vector_quantization.vector_quantize_pytorch import VectorQuantize
 
 # distributed helpers
 
@@ -21,9 +21,6 @@ from vector_quantize_pytorch.vector_quantize_pytorch import VectorQuantize
 @cache
 def is_distributed():
     return dist.is_initialized() and dist.get_world_size() > 1
-
-
-# main class
 
 
 class ResidualVQ(Module):
@@ -40,12 +37,10 @@ class ResidualVQ(Module):
         quantize_dropout=False,
         quantize_dropout_cutoff_index=0,
         quantize_dropout_multiple_of=1,
-        # accept_image_fmap=False,
         **kwargs,
     ):
         super().__init__()
         assert heads == 1, "residual vq is not compatible with multi-headed codes"
-        # codebook_dim = default(codebook_dim, dim)
         codebook_dim = codebook_dim if codebook_dim is not None else dim
         codebook_input_dim = codebook_dim * heads
 
@@ -60,13 +55,11 @@ class ResidualVQ(Module):
 
         self.num_quantizers = num_quantizers
 
-        # self.accept_image_fmap = accept_image_fmap
         self.layers = ModuleList(
             [
                 VectorQuantize(
                     dim=codebook_dim,
                     codebook_dim=codebook_dim,
-                    # accept_image_fmap=accept_image_fmap,
                     **kwargs,
                 )
                 for _ in range(num_quantizers)
@@ -144,7 +137,6 @@ class ResidualVQ(Module):
         mask=None,
         indices: Tensor | list[Tensor] | None = None,
         return_all_codes=False,
-        # sample_codebook_temp=None,
         freeze_codebook=False,
         rand_quantize_dropout_fixed_seed=None,
     ):
@@ -234,7 +226,6 @@ class ResidualVQ(Module):
                 residual,
                 mask=mask,
                 indices=layer_indices,
-                # sample_codebook_temp=sample_codebook_temp,
                 freeze_codebook=freeze_codebook,
             )
 
@@ -290,8 +281,6 @@ class GroupedResidualVQ(Module):
         dim_per_group = dim // groups
         self.channel_last = channel_last
 
-        # self.accept_image_fmap = accept_image_fmap
-
         self.rvqs = ModuleList([])
 
         for _ in range(groups):
@@ -300,10 +289,6 @@ class GroupedResidualVQ(Module):
     @property
     def codebooks(self):
         return torch.stack(tuple(rvq.codebooks for rvq in self.rvqs))
-
-    # @property
-    # def split_dim(self):
-    #     return 1 if self.accept_image_fmap else -1
 
     def get_codes_from_indices(self, indices):
         codes = tuple(
@@ -324,7 +309,6 @@ class GroupedResidualVQ(Module):
         x,
         indices=None,
         return_all_codes=False,
-        # sample_codebook_temp=None,
         freeze_codebook=False,
         mask=None,
     ):
@@ -336,14 +320,12 @@ class GroupedResidualVQ(Module):
 
         x = x.chunk(self.groups, dim=split_dim)
 
-        # indices = default(indices, tuple())
         indices = indices if indices is not None else tuple()
         return_ce_loss = len(indices) > 0
         assert len(indices) == 0 or len(indices) == self.groups
 
         forward_kwargs = dict(
             return_all_codes=return_all_codes,
-            # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
             rand_quantize_dropout_fixed_seed=random.randint(0, int(1e7)),

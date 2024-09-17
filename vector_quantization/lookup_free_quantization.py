@@ -7,54 +7,32 @@ An entropy penalty is used to encourage utilization.
 """
 
 from collections import namedtuple
-from functools import cache, partial
+from functools import partial
 from math import ceil, log2
 
 import torch
-import torch.distributed as dist
 import torch.nn.functional as F
 from einops import pack, rearrange, reduce
 from torch import einsum, nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.distributed import (
+    maybe_distributed_mean,
+)
+from vector_quantization.utils.general import (
     entropy,
     exists,
     identity,
     unpack_one,
 )
-
-# constants
+from vector_quantization.utils.losses import l2norm
 
 Return = namedtuple("Return", ["quantized", "indices", "entropy_aux_loss"])
 
 LossBreakdown = namedtuple(
     "LossBreakdown", ["per_sample_entropy", "batch_entropy", "commitment"]
 )
-
-# distributed helpers
-
-
-@cache
-def is_distributed():
-    return dist.is_initialized() and dist.get_world_size() > 1
-
-
-def maybe_distributed_mean(t):
-    if not is_distributed():
-        return t
-
-    dist.all_reduce(t)
-    t = t / dist.get_world_size()
-    return t
-
-
-def l2norm(t):
-    return F.normalize(t, dim=-1)
-
-
-# cosine sim linear
 
 
 class CosineSimLinear(Module):
@@ -67,9 +45,6 @@ class CosineSimLinear(Module):
         x = F.normalize(x, dim=-1)
         w = F.normalize(self.weight, dim=0)
         return (x @ w) * self.scale
-
-
-# class
 
 
 class LFQ(Module):
@@ -113,16 +88,13 @@ class LFQ(Module):
 
         codebook_dim = int(log2(codebook_size))
         codebook_dims = codebook_dim * num_codebooks
-        # dim = default(dim, codebook_dims)
         dim = dim if dim is not None else codebook_dims
 
-        # has_projections = default(has_projections, dim != codebook_dims)
         has_projections = (
             has_projections if has_projections is not None else (dim != codebook_dims)
         )
 
         if cosine_sim_project_in:
-            # cosine_sim_project_in = default(cosine_sim_project_in_scale, codebook_scale)
             cosine_sim_project_in = (
                 cosine_sim_project_in
                 if cosine_sim_project_in is not None
@@ -146,7 +118,6 @@ class LFQ(Module):
         self.codebook_dim = codebook_dim
         self.num_codebooks = num_codebooks
 
-        # keep_num_codebooks_dim = default(keep_num_codebooks_dim, num_codebooks > 1)
         keep_num_codebooks_dim = (
             keep_num_codebooks_dim
             if keep_num_codebooks_dim is not None
@@ -267,15 +238,12 @@ class LFQ(Module):
         x = x.float()
 
         is_img_or_video = x.ndim >= 4
-        # should_transpose = default(self.channel_first, is_img_or_video)
-        # should_transpose = self.channel_first if self.channel_first is not None else is_img_or_video
 
         # standardize image or video into (batch, seq, dimension)
 
         if self.channel_first:
             x = rearrange(x, "b d ... -> b ... d")
         if is_img_or_video:
-            # x, ps = pack_one(x, "b * d")
             x, ps = pack([x], "b * d")
 
         assert (

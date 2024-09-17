@@ -8,25 +8,23 @@ from torch import nn
 from torch.nn import Module
 from torch.optim import Optimizer
 
-from vector_quantize_pytorch.codebooks import (
+from vector_quantization.codebooks import (
     AffineParameters,
     CodebookParams,
     CosineSimCodebook,
     EuclideanCodebook,
     GumbelParams,
 )
-from vector_quantize_pytorch.utils.distributed import (
+from vector_quantization.utils.distributed import (
     is_distributed,
 )
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     entropy,
     exists,
     identity,
     unpack_one,
 )
-from vector_quantize_pytorch.utils.losses import orthogonal_loss_fn
-
-# main class
+from vector_quantization.utils.losses import orthogonal_loss_fn
 
 LossBreakdown = namedtuple(
     "LossBreakdown",
@@ -58,11 +56,7 @@ class VectorQuantize(Module):
         orthogonal_reg_max_codes=None,
         codebook_diversity_loss_weight=0.0,
         codebook_diversity_temperature=100.0,
-        # stochastic_sample_codes=False,
-        # sample_codebook_temp=1.0,
-        # straight_through=False,
         distributed_replace_codes=True,
-        # reinmax=False,  # using reinmax for improved straight-through
         gumbel_params: GumbelParams = GumbelParams(),
         sync_codebook=None,
         in_place_codebook_optimizer: Callable[
@@ -98,8 +92,6 @@ class VectorQuantize(Module):
 
         self.has_projections = requires_projection
 
-        # self.eps_for_smoothing = eps_for_smoothing
-
         self.has_commitment_loss = commitment_weight > 0.0
         self.commitment_weight = commitment_weight
         self.commitment_use_cross_entropy_loss = commitment_use_cross_entropy_loss  # whether to use cross entropy loss to codebook as commitment loss
@@ -132,13 +124,6 @@ class VectorQuantize(Module):
 
         codebook_class = EuclideanCodebook if not use_cosine_sim else CosineSimCodebook
 
-        # gumbel_sample_fn = partial(
-        #     gumbel_sample,
-        #     stochastic=stochastic_sample_codes,
-        #     reinmax=reinmax,
-        #     straight_through=straight_through,
-        # )
-
         if not exists(sync_codebook):
             sync_codebook = is_distributed()
 
@@ -154,8 +139,6 @@ class VectorQuantize(Module):
             use_ddp=sync_codebook,
             learnable_codebook=has_codebook_orthogonal_loss
             or codebook_params.learnable_codebook,
-            # sample_codebook_temp=sample_codebook_temp,
-            # gumbel_sample=gumbel_sample_fn,
             gumbel_params=gumbel_params,
             ema_update=codebook_params.ema_update,
             distributed_replace_codes=distributed_replace_codes,
@@ -232,7 +215,6 @@ class VectorQuantize(Module):
         x,
         indices=None,
         mask=None,
-        # sample_codebook_temp=None,
         freeze_codebook=False,
         return_loss_breakdown=False,
     ):
@@ -263,35 +245,22 @@ class VectorQuantize(Module):
 
         x = self.project_in(x)
 
-        # handle multi-headed separate codebooks
-
         if is_multiheaded:
             ein_rhs_eq = "h b n d" if self.separate_codebook_per_head else "1 (b h) n d"
             x = rearrange(x, f"b n (h d) -> {ein_rhs_eq}", h=heads)
 
-        # l2norm for cosine sim, otherwise identity
-
         x = self._codebook.transform_input(x)
-
-        # codebook forward kwargs
-
         codebook_forward_kwargs = dict(
             # sample_codebook_temp=sample_codebook_temp,
             mask=mask,
             freeze_codebook=freeze_codebook,
         )
 
-        # quantize
-
         quantize, embed_ind, distances = self._codebook(x, **codebook_forward_kwargs)
-
-        # losses for loss breakdown
 
         commit_loss = orthogonal_reg_loss = inplace_optimize_loss = (
             codebook_diversity_loss
         ) = self.zero
-
-        # one step in-place update
 
         if should_inplace_optimize and self.training and not freeze_codebook:
             if mask is not None:
@@ -316,8 +285,6 @@ class VectorQuantize(Module):
             self.in_place_codebook_optimizer.zero_grad()
 
             inplace_optimize_loss = loss
-
-            # quantize again
 
             quantize, embed_ind, distances = self._codebook(
                 x, **codebook_forward_kwargs
@@ -359,8 +326,6 @@ class VectorQuantize(Module):
             )
 
             return ce_loss
-
-        # if returning cross entropy loss on codes that were passed in
 
         if return_loss:
             return quantize, calculate_ce_loss(indices)

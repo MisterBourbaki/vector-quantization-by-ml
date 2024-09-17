@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from vector_quantize_pytorch.latent_quantization import LatentQuantize
+from vector_quantization.latent_quantization import LatentQuantize
 
 
 class TestLatentQuantizer:

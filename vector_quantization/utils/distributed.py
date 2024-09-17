@@ -4,7 +4,7 @@ import torch
 from einops import rearrange
 from torch import distributed
 
-from vector_quantize_pytorch.utils.general import (
+from vector_quantization.utils.general import (
     sample_vectors,
 )
 

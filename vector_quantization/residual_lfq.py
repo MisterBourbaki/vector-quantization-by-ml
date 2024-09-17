@@ -10,8 +10,8 @@ from torch import nn
 from torch.cuda.amp import autocast
 from torch.nn import Module
 
-from vector_quantize_pytorch.lookup_free_quantization import LFQ
-from vector_quantize_pytorch.utils.general import exists, round_up_multiple
+from vector_quantization.lookup_free_quantization import LFQ
+from vector_quantization.utils.general import exists, round_up_multiple
 
 # main class
 
