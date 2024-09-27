@@ -109,7 +109,7 @@ class SimpleVQAutoEncoder(LightningModule):
         return optimizer
 
 
-model = SimpleVQAutoEncoder()
+model = SimpleVQAutoEncoder(initialization_by_kmeans=False)
 data = LitFashionMNIST()
 logger = TensorBoardLogger(save_dir=".", name="base_vqvae")
 trainer = Trainer(
