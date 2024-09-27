@@ -68,9 +68,7 @@ class SimpleVQAutoEncoder(LightningModule):
         )
 
     def forward(self, x):
-        # pprint(f"DEBUG ::: x shape is {x.shape}")
         feat = self.encoder(x)
-        # pprint(f"DEBUG ::: feat shape is {feat.shape}")
         quant, indices, commit_loss = self.quantizer(feat)
         out = self.decoder(quant)
 
@@ -84,7 +82,7 @@ class SimpleVQAutoEncoder(LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         self.log("train_commit_loss", commit_loss, prog_bar=True)
         self.log(
-            "train_indices",
+            "train_codebook_used",
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
@@ -98,7 +96,7 @@ class SimpleVQAutoEncoder(LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_commit_loss", commit_loss, prog_bar=True)
         self.log(
-            "val_indices",
+            "val_codebook_used",
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
