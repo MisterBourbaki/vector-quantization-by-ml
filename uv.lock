@@ -1978,6 +1978,7 @@ source = { editable = "." }
 dependencies = [
     { name = "einops" },
     { name = "einx" },
+    { name = "rich" },
     { name = "torch" },
 ]
 
@@ -2006,6 +2007,7 @@ requires-dist = [
     { name = "einops", specifier = ">=0.8.0" },
     { name = "einx", specifier = ">=0.2.2" },
     { name = "lightning", marker = "extra == 'examples'" },
+    { name = "rich", specifier = ">=13.7.1" },
     { name = "rich", marker = "extra == 'examples'", specifier = ">=13.7.1" },
     { name = "tensorboard", marker = "extra == 'examples'" },
     { name = "torch", specifier = ">=2.0" },

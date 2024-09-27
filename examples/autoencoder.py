@@ -19,6 +19,7 @@ from torch.nn.functional import l1_loss
 
 from examples.data import LitFashionMNIST
 from vector_quantization import VectorQuantize
+from vector_quantization.codebooks import CodebookParams, KmeansParameters
 
 seed_everything(1234, workers=True)
 
@@ -32,12 +33,21 @@ class SimpleVQAutoEncoder(LightningModule):
         codebook_size: int = 256,
         alpha: float = 10,
         lr: float = 3e-4,
+        initialization_by_kmeans: bool = False,
     ):
         super().__init__()
         self.dim = dim
         self.codebook_size = codebook_size
         self.alpha = alpha
         self.lr = lr
+
+        kmeans_params = KmeansParameters()
+        self.codebook_params = CodebookParams(
+            dim=dim,
+            codebook_size=codebook_size,
+            initialization_by_kmeans=initialization_by_kmeans,
+            kmeans_params=kmeans_params,
+        )
 
         self.encoder = nn.Sequential(
             nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=1),
@@ -54,7 +64,7 @@ class SimpleVQAutoEncoder(LightningModule):
             nn.Conv2d(16, 1, kernel_size=3, stride=1, padding=1),
         )
         self.quantizer = VectorQuantize(
-            dim=dim, codebook_size=codebook_size, accept_image_fmap=True
+            dim=dim, codebook_params=self.codebook_params, channel_last=False
         )
 
     def forward(self, x):
@@ -72,7 +82,7 @@ class SimpleVQAutoEncoder(LightningModule):
         self.log("train_loss", loss, prog_bar=True)
         self.log("train_commit_loss", commit_loss, prog_bar=True)
         self.log(
-            "train_indices",
+            "train_codebook_used",
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
@@ -86,7 +96,7 @@ class SimpleVQAutoEncoder(LightningModule):
         self.log("val_loss", loss, prog_bar=True)
         self.log("val_commit_loss", commit_loss, prog_bar=True)
         self.log(
-            "val_indices",
+            "val_codebook_used",
             indices.unique().numel() / self.codebook_size * 100,
             prog_bar=True,
         )
@@ -97,7 +107,7 @@ class SimpleVQAutoEncoder(LightningModule):
         return optimizer
 
 
-model = SimpleVQAutoEncoder()
+model = SimpleVQAutoEncoder(initialization_by_kmeans=False)
 data = LitFashionMNIST()
 logger = TensorBoardLogger(save_dir=".", name="base_vqvae")
 trainer = Trainer(

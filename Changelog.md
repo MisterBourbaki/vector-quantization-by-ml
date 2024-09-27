@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+* Fix warning regarding the deprecation of torch.cuda.amp.autocast.
+* Add the Rich traceback install in the '__init__' file of the package.
+* Update parameters and instanciation of the VQ module in the autoencoder example.
+
 ## [Version 1.17.0]
 
 * Create a new, meta Codebook class which can be used to create both EuclideanCodebook and CosineSimCodebook. Allows for further types of Codebooks.
@@ -11,7 +17,6 @@
 * Rename the method 'replace' in Codebook into 'replace_codes' to avoid confusion with 'replace' from Dataclasses library.
 * The CodebookParams contain now everything needed to instanciate a codebook. For instance, no more GumbelParams in VQ.
 * Changes made accordingly in the ResidualVQ API and test suit.
-
 
 ## [Version 1.16.3]
 

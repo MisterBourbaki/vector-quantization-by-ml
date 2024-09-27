@@ -29,6 +29,7 @@ dependencies = [
     "torch>=2.0",
     "einops>=0.8.0",
     "einx>=0.2.2",
+    "rich>=13.7.1",
 ]
 
 [project.urls]
