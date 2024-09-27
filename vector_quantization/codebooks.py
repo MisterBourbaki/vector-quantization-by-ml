@@ -4,7 +4,7 @@ from functools import partial
 import torch
 from einops import rearrange, reduce, repeat
 from torch import cdist, distributed, einsum, nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn import Module
 
 from vector_quantization.utils.distributed import (
@@ -347,7 +347,7 @@ class Codebook(Module):
             self.affine_params.batch_decay,
         )
 
-    @autocast(enabled=False)
+    @autocast(device_type="cuda", enabled=False)
     def forward(self, x, mask=None, freeze_codebook=False):
         needs_codebook_dim = x.ndim < 4
 

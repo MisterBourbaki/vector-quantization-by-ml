@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from einops import pack, rearrange, reduce, unpack
 from einx import get_at
 from torch import nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn import Module
 
 from vector_quantization.finite_scalar_quantization import FSQ
@@ -169,7 +169,7 @@ class ResidualFSQ(Module):
 
         # go through the layers
 
-        with autocast(enabled=False):
+        with autocast(device_type="cuda", enabled=False):
             for quantizer_index, (layer, scale) in enumerate(
                 zip(self.layers, self.scales)
             ):

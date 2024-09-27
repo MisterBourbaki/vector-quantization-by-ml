@@ -14,7 +14,7 @@ import torch
 import torch.nn.functional as F
 from einops import pack, rearrange, reduce
 from torch import einsum, nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn import Module
 
 from vector_quantization.utils.distributed import (
@@ -219,7 +219,7 @@ class LFQ(Module):
 
         return codes
 
-    @autocast(enabled=False)
+    @autocast(device_type="cuda", enabled=False)
     def forward(
         self,
         x,

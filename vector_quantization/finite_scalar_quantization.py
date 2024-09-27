@@ -9,7 +9,7 @@ from __future__ import annotations
 import torch
 from einops import pack, rearrange, unpack
 from torch import Tensor, int32, nn
-from torch.cuda.amp import autocast
+from torch.amp import autocast
 from torch.nn import Module
 
 # tensor helpers
@@ -196,7 +196,7 @@ class FSQ(Module):
 
         return codes
 
-    @autocast(enabled=False)
+    @autocast(device_type="cuda", enabled=False)
     def forward(self, features: Tensor) -> tuple[Tensor, Tensor]:
         """Apply the forward pass to the features tensor.
 
