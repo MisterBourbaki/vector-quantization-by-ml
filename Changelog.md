@@ -18,7 +18,6 @@
 * The CodebookParams contain now everything needed to instanciate a codebook. For instance, no more GumbelParams in VQ.
 * Changes made accordingly in the ResidualVQ API and test suit.
 
-
 ## [Version 1.16.3]
 
 * Introduce dataclass GumbelParams for the sampling function (here, various kinds of Gumbel sampling).
